@@ -1,0 +1,239 @@
+Linux version 3.3.5 (@builder) (gcc version 4.8.2 (GCC) ) #1 Wed Mar 13 09:50:21 UTC 2019
+CPU revision is: 00019750 (MIPS 74Kc)
+Determined physical RAM map:
+ memory: 0002a000 @ 00382000 (usable after init)
+User-defined physical RAM map:
+ memory: 08000000 @ 00000000 (usable)
+Initial ramdisk at: 0xc0513000 (102944 bytes)
+Zone PFN ranges:
+  DMA      0x00000000 -> 0x00008000
+  Normal   empty
+Movable zone start PFN for each node
+Early memory PFN ranges
+    0: 0x00000000 -> 0x00008000
+On node 0 totalpages: 32768
+free_area_init_node: node 0, pgdat c037f620, node_mem_map c1000000
+  DMA zone: 256 pages used for memmap
+  DMA zone: 0 pages reserved
+  DMA zone: 32512 pages, LIFO batch:7
+Primary instruction cache 64kB, VIPT, 4-way, linesize 32 bytes.
+Primary data cache 32kB, 4-way, VIPT, cache aliases, linesize 32 bytes
+pcpu-alloc: s0 r0 d32768 u32768 alloc=1*32768
+pcpu-alloc: [0] 0 
+Built 1 zonelists in Zone order, mobility grouping on.  Total pages: 32512
+Kernel command line: root=/dev/ram0 bootimage=1 no-uart no-buzzer no-nand parts=1 boot_part_size=16777216 gpio=545249835 mem=128M kmac=C4:AD:34:23:F0:D3 board=960 board=960 ver=6.43.16 bver=6.43.16 hw_opt=00194001 boot=1 mlc=11 rd_start=0xc0513000 rd_size=0x00019220 
+PID hash table entries: 512 (order: -1, 2048 bytes)
+Dentry cache hash table entries: 16384 (order: 4, 65536 bytes)
+Inode-cache hash table entries: 8192 (order: 3, 32768 bytes)
+Writing ErrCtl register=00000000
+Readback ErrCtl register=00000000
+Memory: 124604k/131072k available (2390k kernel code, 6468k reserved, 681k data, 168k init, 0k highmem)
+SLUB: Genslabs=15, HWalign=16, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+NR_IRQS:168
+Calibrating delay loop... 398.13 BogoMIPS (lpj=1990656)
+pid_max: default: 32768 minimum: 301
+Mount-cache hash table entries: 512
+devtmpfs: initialized
+NET: Registered protocol family 16
+hw_options 194001
+adding platform device rb400-ehci
+adding platform device leds-rb
+adding platform device rb900-spi
+adding platform device rb750-wlan
+adding platform device rb400-gpio
+adding platform device i2c-gpio
+adding platform device rb400-gpio-i2c-sfp
+adding platform device poe-pse-ghost
+adding platform device ag7240
+rb900_pci_init
+rb700_pci_init
+gpiochip_add: registered GPIOs 0 to 27 on device: cpu-gpio-pins
+rb400_gpio_i2c_sfp_probe 0
+bio: create slab <bio-0> at 0
+i2c-gpio i2c-gpio: using pins 18 (SDA) and 19 (SCL)
+Switching to clocksource MIPS
+NET: Registered protocol family 2
+IP route cache hash table entries: 1024 (order: 0, 4096 bytes)
+TCP established hash table entries: 4096 (order: 3, 32768 bytes)
+TCP bind hash table entries: 4096 (order: 2, 16384 bytes)
+TCP: Hash tables configured (established 4096 bind 4096)
+TCP reno registered
+UDP hash table entries: 256 (order: 0, 4096 bytes)
+UDP-Lite hash table entries: 256 (order: 0, 4096 bytes)
+NET: Registered protocol family 1
+PCI: CLS 0 bytes, default 32
+Unpacking initramfs...
+Freeing initrd memory: 100k freed
+squashfs: version 4.0 (2009/01/31) Phillip Lougher
+yaffs Mar 13 2019 09:48:21 Installing. 
+msgmni has been set to 243
+io scheduler noop registered (default)
+RB900 SPI
+ahb_clock_source is CORE (400000000Hz)
+AHB clock 133333334 Hz
+m25p80 spi0.4: found w25q128jv, expected m25p80
+m25p80 spi0.4: w25q128jv (16384 Kbytes)
+Creating 2 MTD partitions on "spi0.4":
+0x000000020000-0x000001000000 : "RouterOS"
+0x000000000000-0x000000020000 : "RouterBoot"
+Registered led device: sfp-led
+Registered led device: power-led
+Registered led device: user-led
+Registered led device: usb-power-off
+Registered led device: button
+Registered led device: all-leds
+TCP cubic registered
+NET: Registered protocol family 17
+Warning: unable to open an initial console.
+Freeing unused kernel memory: 168k freed
+Algorithmics/MIPS FPU Emulator v1.5
+yaffs: dev is 32505856 name is "mtdblock0"
+yaffs: Attempting MTD mount on 31.0, "mtdblock0"
+new-flash: starting...
+using MTD device
+-=(00022a00)=-
+flash: ptr = d1400000, base = 1fc00000
+HW_OPT[00194001]
+board name = 960PGS
+market name = PowerBox Pro
+alloc spi_page_buf size = 4096
+uid->nand_id ef701800
+spi unique id e4688847173f272c
+logring: default buf size:4096, console_loglevel:1
+console [logring0] enabled
+RB400 spi poe not present
+nf_conntrack version 0.5.0 (54500 buckets, 218000 max)
+skb_bin_update_max_len: 0->1792
+gre: register ipv4
+sizeof(struct phy):452
+Bridge firewalling registered
+watchdog freq = 40000000
+Registered led device: group0
+Registered led device: group1
+Registered led device: group2
+Registered led device: group3
+hard cfg field 38 is absent
+fan: init
+Initializing XFRM netlink socket
+ar7100_wdt_enable
+voltage: init
+init_rb450G_voltage
+voltage: terminating
+fan: init
+voltage: init
+init_rb450G_voltage
+voltage: terminating
+rb: starting...
+rb: started
+rb_ioctl, cmd: 0x2000520f, arg: 0x0
+rb: RB_GET_TYPE
+rb_ioctl, cmd: 0x20005201, arg: 0x0
+rb: RB_CFG_SIZE
+rb_ioctl, cmd: 0x20005203, arg: 0x457ea8
+rb: RB_READ_CFG
+rb_ioctl, cmd: 0x20005202, arg: 0x0
+rb: RB_INFO_SIZE
+rb_ioctl, cmd: 0x20005204, arg: 0x458eb0
+rb: RB_READ_INFO
+probe_er_radio_data id 3
+NET: Registered protocol family 15
+usbcore: registered new interface driver usbfs
+usbcore: registered new interface driver hub
+usbcore: registered new device driver usb
+ehci_hcd: USB 2.0 'Enhanced' Host Controller (EHCI) Driver
+rb400-ehci rb400-ehci.0: RB400 EHCI
+rb400-ehci rb400-ehci.0: new USB bus registered, assigned bus number 1
+ehci_reset Port Status 1c000000 
+rb400-ehci rb400-ehci.0: irq 3, io mem 0x1b000000
+rb400-ehci rb400-ehci.0: USB 2.0 started, EHCI 1.00
+hub 1-0:1.0: USB hub found
+hub 1-0:1.0: 1 port detected
+a9300_ahb_init: read eeprom, size 65536, rev 0x1130
+probe_er_radio_data id 1
+read_radio_data got 0 from 131072
+a9300_ahb_init: read_dr_radio_data == 0, uncalibrated?
+rb400-ehci rb400-ehci.0: remove, state 1
+usb usb1: USB disconnect, device number 1
+ehci_reset Port Status 1c000000 
+rb400-ehci rb400-ehci.0: USB bus 1 deregistered
+spi poe_v3 init
+ehci_hcd: USB 2.0 'Enhanced' Host Controller (EHCI) Driver
+rb400-ehci rb400-ehci.0: RB400 EHCI
+rb400-ehci rb400-ehci.0: new USB bus registered, assigned bus number 1
+ehci_reset Port Status 1c000000 
+PSE spi poe, ver now 400c new 211
+sram: init cpu:1130
+sram: init size:32768
+rb400-ehci rb400-ehci.0: irq 3, io mem 0x1b000000
+rb400-ehci rb400-ehci.0: USB 2.0 started, EHCI 1.00
+hub 1-0:1.0: USB hub found
+hub 1-0:1.0: 1 port detected
+ohci_hcd: USB 1.1 'Open' Host Controller (OHCI) Driver
+ath8327: custom_leds:0 is_rb2011_sfp_old:0 is_rb2011_sfp_new:0
+hard cfg field 38 is absent
+flash: writing cfg id = 23, size = 4
+flash_ioctl: programming injected settings id 23
+using MTD device
+mpls_nl_init: id 17
+sizeof(struct music_hdr): 12
+machtype:84 cpu: 1130, revision: 0, cycles_per_sec: 400000000
+ar7240:0 ar7241:0 ar7242:0 ar9330:0 ar9331:0 ar9341:0 ar9342:0 ar9344:0 qca95xx:1
+sram alloc 16384 32, used 16384, ptr: d2110000
+sram alloc 2048 32, used 18432, ptr: d2114000
+switch0: reset unit 0 (phy 8327, mii divider 6, preamble 0) mdio_reset:1
+switch0: ath8327_reset 1302
+switch0: reg access: 57920ns
+switch0: max_tx_buffers_per_port=203, tx_buffer_count=1024, cpu_port_count=1, port_count=5, max_tx_buffers_per_pack=1, num_tx_queues:1
+sram alloc 2048 32, used 20480, ptr: d2114800
+sram alloc 2048 32, used 22528, ptr: d2115000
+eth5: reset unit 1 (phy -1, mii divider 2, preamble 0) mdio_reset:1
+eth5: do sgmii reset
+eth5: sgmii max resets limit reached
+switch0: open
+switch0: reset unit 0 (phy 8327, mii divider 15, preamble 1) mdio_reset:1
+switch0: ETH_XMII_CONTROL: 8f000000
+switch0: ath8327_reset 1302
+switch0: reg access: 506577ns
+Registered led device: switch0-all-leds
+eth0: set isolation from 0 to 0
+switch0-eth0: set switched 14 0
+eth1: set isolation from 0 to 0
+switch0-eth1: set switched 14 0
+eth2: set isolation from 0 to 0
+switch0-eth2: set switched 14 0
+eth3: set isolation from 0 to 0
+switch0-eth3: set switched 14 0
+eth4: set isolation from 0 to 0
+switch0-eth4: set switched 14 0
+eth0: phy reg access: 169675ns
+POE rx crc error, retry
+POE rx crc error, retry
+POE cmd failed: crc error
+POE rx crc error, retry
+POE rx crc error, retry
+POE cmd failed: crc error
+POE rx crc error, retry
+POE rx crc error, retry
+POE cmd failed: crc error
+POE rx crc error, retry
+POE rx crc error, retry
+POE cmd failed: crc error
+eth5: open
+eth5: reset unit 1 (phy -1, mii divider 2, preamble 0) mdio_reset:1
+eth5: do sgmii reset
+eth5: sgmii max resets limit reached
+eth0: set isolation from 0 to 0
+switch0-eth0: set switched 14 0
+eth1: set isolation from 0 to 0
+switch0-eth1: set switched 14 0
+eth2: set isolation from 0 to 0
+switch0-eth2: set switched 14 0
+eth3: set isolation from 0 to 0
+switch0-eth3: set switched 14 0
+eth4: set isolation from 0 to 0
+switch0-eth4: set switched 14 0
+eth0: link change 03ce -> 034e -> 034e
+eth0: phy link up (1000/full)
+device eth0 entered promiscuous mode
+eth0: set isolation from 0 to 1
+switch0-eth0: set switched 14 0
