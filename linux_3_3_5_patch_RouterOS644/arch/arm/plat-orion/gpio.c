@@ -16,6 +16,7 @@
 #include <linux/bitops.h>
 #include <linux/io.h>
 #include <linux/gpio.h>
+#include <plat/gpio.h>
 
 /*
  * GPIO unit register offsets.

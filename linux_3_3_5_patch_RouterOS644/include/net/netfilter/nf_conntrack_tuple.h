@@ -12,7 +12,9 @@
 
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter/nf_conntrack_tuple_common.h>
+#ifdef __KERNEL__
 #include <linux/list_nulls.h>
+#endif
 
 /* A `tuple' is a structure containing the information to uniquely
   identify a connection.  ie. if two packets have the same tuple, they

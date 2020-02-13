@@ -186,6 +186,9 @@ clean_from_lists(struct nf_conn *ct)
 	nf_ct_remove_expectations(ct);
 }
 
+void (*connlimit_destroy_conntrack)(struct nf_conn *);
+EXPORT_SYMBOL(connlimit_destroy_conntrack);
+
 static void
 destroy_conntrack(struct nf_conntrack *nfct)
 {
@@ -193,6 +196,9 @@ destroy_conntrack(struct nf_conntrack *nfct)
 	struct net *net = nf_ct_net(ct);
 	struct nf_conntrack_l4proto *l4proto;
 
+	if (connlimit_destroy_conntrack) {
+	    connlimit_destroy_conntrack(ct);
+	}
 	pr_debug("destroy_conntrack(%p)\n", ct);
 	NF_CT_ASSERT(atomic_read(&nfct->use) == 0);
 	NF_CT_ASSERT(!timer_pending(&ct->timeout));
@@ -214,11 +220,11 @@ destroy_conntrack(struct nf_conntrack *nfct)
 	 * too. */
 	nf_ct_remove_expectations(ct);
 
-	/* We overload first tuple to link into unconfirmed list. */
-	if (!nf_ct_is_confirmed(ct)) {
+	if(ct->layer7.data) kfree(ct->layer7.data);
+
+	/* We overload first tuple to link into unconfirmed or dying list.*/
 		BUG_ON(hlist_nulls_unhashed(&ct->tuplehash[IP_CT_DIR_ORIGINAL].hnnode));
 		hlist_nulls_del_rcu(&ct->tuplehash[IP_CT_DIR_ORIGINAL].hnnode);
-	}
 
 	NF_CT_STAT_INC(net, delete);
 	spin_unlock_bh(&nf_conntrack_lock);
@@ -240,6 +246,9 @@ void nf_ct_delete_from_lists(struct nf_conn *ct)
 	 * Otherwise we can get spurious warnings. */
 	NF_CT_STAT_INC(net, delete_list);
 	clean_from_lists(ct);
+	/* add this conntrack to the dying list */
+	hlist_nulls_add_head(&ct->tuplehash[IP_CT_DIR_ORIGINAL].hnnode,
+			     &net->ct.dying);
 	spin_unlock_bh(&nf_conntrack_lock);
 }
 EXPORT_SYMBOL_GPL(nf_ct_delete_from_lists);
@@ -258,28 +267,20 @@ static void death_by_event(unsigned long ul_conntrack)
 	}
 	/* we've got the event delivered, now it's dying */
 	set_bit(IPS_DYING_BIT, &ct->status);
-	spin_lock(&nf_conntrack_lock);
-	hlist_nulls_del(&ct->tuplehash[IP_CT_DIR_ORIGINAL].hnnode);
-	spin_unlock(&nf_conntrack_lock);
 	nf_ct_put(ct);
 }
 
-void nf_ct_insert_dying_list(struct nf_conn *ct)
+void nf_ct_dying_timeout(struct nf_conn *ct)
 {
 	struct net *net = nf_ct_net(ct);
 
-	/* add this conntrack to the dying list */
-	spin_lock_bh(&nf_conntrack_lock);
-	hlist_nulls_add_head(&ct->tuplehash[IP_CT_DIR_ORIGINAL].hnnode,
-			     &net->ct.dying);
-	spin_unlock_bh(&nf_conntrack_lock);
 	/* set a new timer to retry event delivery */
 	setup_timer(&ct->timeout, death_by_event, (unsigned long)ct);
 	ct->timeout.expires = jiffies +
 		(random32() % net->ct.sysctl_events_retry_timeout);
 	add_timer(&ct->timeout);
 }
-EXPORT_SYMBOL_GPL(nf_ct_insert_dying_list);
+EXPORT_SYMBOL_GPL(nf_ct_dying_timeout);
 
 static void death_by_timeout(unsigned long ul_conntrack)
 {
@@ -294,12 +295,53 @@ static void death_by_timeout(unsigned long ul_conntrack)
 	    unlikely(nf_conntrack_event(IPCT_DESTROY, ct) < 0)) {
 		/* destroy event was not delivered */
 		nf_ct_delete_from_lists(ct);
-		nf_ct_insert_dying_list(ct);
+		nf_ct_dying_timeout(ct);
 		return;
 	}
 	set_bit(IPS_DYING_BIT, &ct->status);
 	nf_ct_delete_from_lists(ct);
 	nf_ct_put(ct);
+}
+
+#define SECS *HZ
+#define MINS * 60 SECS
+#define HOURS * 60 MINS
+#define DAYS * 24 HOURS
+
+static inline unsigned long ct_max_timeout(struct nf_conn *ct)
+{
+	struct net *net = nf_ct_net(ct);
+	unsigned nth = nf_conntrack_max >> 4;
+	unsigned count = atomic_read(&net->ct.count);
+
+	if (count < nth) return 100 DAYS;
+	if (count < 3 * nth) return 1 DAYS;
+	if (count < 8 * nth) return 1 HOURS;
+	if (count < 13 * nth) return 10 MINS;
+	return 1 MINS;
+}
+
+static void ct_timeout(unsigned long ul_conntrack)
+{
+	struct nf_conn *ct = (void *)ul_conntrack;
+
+	spin_lock_bh(&nf_conntrack_lock);
+	if (ct->extra_timeout == 0) {
+		spin_unlock_bh(&nf_conntrack_lock);
+		death_by_timeout(ul_conntrack);
+	} else {
+	    unsigned extra_jiffies;
+	    unsigned long old_timeout = ct->extra_timeout;
+
+	    ct->extra_timeout = min(ct_max_timeout(ct), old_timeout);
+
+	    extra_jiffies = min(60u * HZ, ct->extra_timeout);
+	    ct->extra_timeout -= extra_jiffies;
+	    ct->timeout.expires = jiffies + extra_jiffies;
+	    add_timer(&ct->timeout);
+
+	    spin_unlock_bh(&nf_conntrack_lock);
+	}
 }
 
 /*
@@ -680,14 +722,30 @@ __nf_conntrack_alloc(struct net *net, u16 zone,
 
 	if (nf_conntrack_max &&
 	    unlikely(atomic_read(&net->ct.count) > nf_conntrack_max)) {
-		if (!early_drop(net, hash_bucket(hash, net))) {
+
+		/* Try dropping from random hash chains (hopefully old ones). */
+		unsigned i;
+
+		for (i = 0; i < 8; ++i) {
+			static unsigned int drop_next = 0;
+			unsigned int next = (drop_next++) % net->ct.htable_size;
+
+			while (hlist_nulls_empty(&net->ct.hash[next])) {
+				next = (drop_next++) % net->ct.htable_size;
+			}
+
+			if (early_drop(net, next)) goto dropped;
+		}
 			atomic_dec(&net->ct.count);
+
 			if (net_ratelimit())
 				printk(KERN_WARNING
 				       "nf_conntrack: table full, dropping"
 				       " packet.\n");
 			return ERR_PTR(-ENOMEM);
-		}
+
+	  dropped:
+		;
 	}
 
 	/*
@@ -713,7 +771,7 @@ __nf_conntrack_alloc(struct net *net, u16 zone,
 	/* save hash for reusing when confirming */
 	*(unsigned long *)(&ct->tuplehash[IP_CT_DIR_REPLY].hnnode.pprev) = hash;
 	/* Don't set timer yet: wait for confirmation */
-	setup_timer(&ct->timeout, death_by_timeout, (unsigned long)ct);
+	setup_timer(&ct->timeout, ct_timeout, (unsigned long)ct);
 	write_pnet(&ct->ct_net, net);
 #ifdef CONFIG_NF_CONNTRACK_ZONES
 	if (zone) {
@@ -1046,6 +1104,76 @@ void nf_conntrack_alter_reply(struct nf_conn *ct,
 }
 EXPORT_SYMBOL_GPL(nf_conntrack_alter_reply);
 
+static void nf_conntrack_change_tuple_ip(struct nf_conntrack_tuple_hash *th,
+					 unsigned new_ip)
+{
+    struct nf_conn *ct = nf_ct_tuplehash_to_ctrack(th);
+    struct net *net = nf_ct_net(ct);
+    u16 zone = nf_ct_zone(ct);
+
+    /*
+     * userspace uses conntrack tuples to identify conntrack =>
+     * after conntrack tuple is changed, userspace will not be able to
+     * identify it anymore.
+     * To workaround this, we send IPCT_DESTROY on old conntrack,
+     * modify conntrack and send IPCT_NEW on this new one.
+     */
+    nf_conntrack_event(IPCT_DESTROY, ct);
+
+    th->tuple.src.u3.ip = new_ip;
+    hlist_nulls_del_rcu(&th->hnnode);
+    hlist_nulls_add_head_rcu(&th->hnnode,
+			     &net->ct.hash[hash_conntrack(net, zone, &th->tuple)]);
+    set_bit(IPS_SRC_NAT_BIT, &ct->status);
+
+    nf_conntrack_event(IPCT_NEW, ct);
+}
+
+/* Change source ip address of conntrack entry in use */
+void nf_conntrack_change_ip(unsigned old_ip, unsigned new_ip)
+{
+    struct hlist_nulls_head *hi;
+    struct hlist_nulls_head *hi_end;
+    struct nf_conntrack_tuple_hash *th;
+    struct hlist_nulls_node *n;
+    struct hlist_nulls_node *next;
+    struct hlist_nulls_head tlist;
+    struct net *net = &init_net;
+
+    INIT_HLIST_NULLS_HEAD(&tlist, 0);
+
+    printk(KERN_INFO "nf_conntrack_change_ip %x -> %x\n", old_ip, new_ip);
+    if (old_ip == 0 || new_ip == 0) return;
+
+    spin_lock_bh(&nf_conntrack_lock);
+    rcu_read_lock();
+
+    /* Traverse all hashed tuple entries */
+    hi_end = net->ct.hash + nf_conntrack_htable_size;
+    for (hi = net->ct.hash; hi < hi_end; ++hi) {
+	for (n = rcu_dereference(hi->first); !is_a_nulls(n); n = next) {
+	    next = rcu_dereference(n->next);
+	    th = hlist_nulls_entry(n, struct nf_conntrack_tuple_hash, hnnode);
+	    if (th->tuple.src.u3.ip == old_ip) {
+		hlist_nulls_del_rcu(&th->hnnode);
+		hlist_nulls_add_head_rcu(&th->hnnode, &tlist);
+	    }
+	}
+    }
+
+    /* process all matched tuples */
+    for (n = rcu_dereference(tlist.first); !is_a_nulls(n); n = next) {
+	next = rcu_dereference(n->next);
+	th = hlist_nulls_entry(n, struct nf_conntrack_tuple_hash, hnnode);
+
+	nf_conntrack_change_tuple_ip(th, new_ip);
+    }
+
+    rcu_read_unlock();
+    spin_unlock_bh(&nf_conntrack_lock);
+}
+EXPORT_SYMBOL(nf_conntrack_change_ip);
+
 /* Refresh conntrack for this many jiffies and do accounting if do_acct is 1 */
 void __nf_ct_refresh_acct(struct nf_conn *ct,
 			  enum ip_conntrack_info ctinfo,
@@ -1059,6 +1187,14 @@ void __nf_ct_refresh_acct(struct nf_conn *ct,
 	/* Only update if this is not a fixed timeout */
 	if (test_bit(IPS_FIXED_TIMEOUT_BIT, &ct->status))
 		goto acct;
+
+	if (extra_jiffies > 60 * HZ) {
+		extra_jiffies = min(extra_jiffies, ct_max_timeout(ct));
+		ct->extra_timeout =  max((int) extra_jiffies - 60 * HZ, 0);
+		extra_jiffies = 60 * HZ;
+	} else {
+		ct->extra_timeout = 0;
+	}
 
 	/* If not in hash table, timer will not be active yet */
 	if (!nf_ct_is_confirmed(ct)) {
@@ -1079,8 +1215,23 @@ acct:
 
 		acct = nf_conn_acct_find(ct);
 		if (acct) {
-			atomic64_inc(&acct[CTINFO2DIR(ctinfo)].packets);
-			atomic64_add(skb->len, &acct[CTINFO2DIR(ctinfo)].bytes);
+			acct += CTINFO2DIR(ctinfo);
+			if (!atomic64_read(&acct->packets)) {
+				acct->second_end_jiffies = jiffies + HZ;
+			}
+			if (time_after(jiffies, acct->second_end_jiffies)) {
+				spin_lock_bh(&ct->lock);
+				if (time_after(jiffies, acct->second_end_jiffies)) {
+					atomic_set(&acct->bytes_prev_second,
+						   atomic_read(&acct->bytes_this_second));
+					atomic_set(&acct->bytes_this_second, 0);
+					acct->second_end_jiffies = jiffies + HZ;
+				}
+				spin_unlock_bh(&ct->lock);
+			}
+			atomic64_inc(&acct->packets);
+			atomic64_add(skb->len, &acct->bytes);
+			atomic_add(skb->len, &acct->bytes_this_second);
 		}
 	}
 }
@@ -1103,6 +1254,7 @@ bool __nf_ct_kill_acct(struct nf_conn *ct,
 	}
 
 	if (del_timer(&ct->timeout)) {
+		ct->extra_timeout = 0;
 		ct->timeout.function((unsigned long)ct);
 		return true;
 	}
@@ -1455,14 +1607,15 @@ static int nf_conntrack_init_init_net(void)
 
 	/* Idea from tcp.c: use 1/16384 of memory.  On i386: 32MB
 	 * machine has 512 buckets. >= 1GB machines have 16384 buckets. */
+	/* NOTE: changed ratio, htable_size = (mem_size-16Mb)/2048b */
 	if (!nf_conntrack_htable_size) {
-		nf_conntrack_htable_size
-			= (((totalram_pages << PAGE_SHIFT) / 16384)
-			   / sizeof(struct hlist_head));
-		if (totalram_pages > (1024 * 1024 * 1024 / PAGE_SIZE))
-			nf_conntrack_htable_size = 16384;
-		if (nf_conntrack_htable_size < 32)
-			nf_conntrack_htable_size = 32;
+		nf_conntrack_htable_size = (totalram_pages - 16384*1024 / PAGE_SIZE) *
+		    (PAGE_SIZE / 2048);
+
+		if ((int) nf_conntrack_htable_size < 512)
+			nf_conntrack_htable_size = 512;
+		if (nf_conntrack_htable_size > 262144)
+			nf_conntrack_htable_size = 262144;
 
 		/* Use a max. factor of four by default to get the same max as
 		 * with the old struct list_heads. When a table size is given

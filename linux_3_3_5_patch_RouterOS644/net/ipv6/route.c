@@ -57,6 +57,7 @@
 #include <net/netlink.h>
 
 #include <asm/uaccess.h>
+#include <asm/unaligned.h>
 
 #ifdef CONFIG_SYSCTL
 #include <linux/sysctl.h>
@@ -877,7 +878,7 @@ void ip6_route_input(struct sk_buff *skb)
 		.flowi6_iif = skb->dev->ifindex,
 		.daddr = iph->daddr,
 		.saddr = iph->saddr,
-		.flowlabel = (* (__be32 *) iph) & IPV6_FLOWINFO_MASK,
+		.flowlabel = get_unaligned((__be32 *) iph) & IPV6_FLOWINFO_MASK,
 		.flowi6_mark = skb->mark,
 		.flowi6_proto = iph->nexthdr,
 	};
@@ -1048,7 +1049,11 @@ static unsigned int ip6_default_advmss(const struct dst_entry *dst)
 static unsigned int ip6_mtu(const struct dst_entry *dst)
 {
 	struct inet6_dev *idev;
-	unsigned int mtu = dst_metric_raw(dst, RTAX_MTU);
+	unsigned int mtu;
+
+	if (dst->child) return dst_mtu(dst->child);
+
+	mtu = dst_metric_raw(dst, RTAX_MTU);
 
 	if (mtu)
 		return mtu;
@@ -1178,7 +1183,7 @@ static int ip6_dst_gc(struct dst_ops *ops)
 		goto out;
 
 	net->ipv6.ip6_rt_gc_expire++;
-	fib6_run_gc(net->ipv6.ip6_rt_gc_expire, net);
+	fib6_run_gc(~0UL, net);
 	net->ipv6.ip6_rt_last_gc = now;
 	entries = dst_entries_get_slow(ops);
 	if (entries < ops->gc_thresh)

@@ -196,7 +196,7 @@ $(multi-objs-y:.o=.s)   : modname = $(modname-multi)
 $(multi-objs-y:.o=.lst) : modname = $(modname-multi)
 
 quiet_cmd_cc_s_c = CC $(quiet_modtag)  $@
-cmd_cc_s_c       = $(CC) $(c_flags) -fverbose-asm -S -o $@ $<
+cmd_cc_s_c       = rm -f $@ && $(CC) $(c_flags) -fverbose-asm -S -o $@ $<
 
 $(obj)/%.s: $(src)/%.c FORCE
 	$(call if_changed_dep,cc_s_c)
@@ -290,6 +290,7 @@ endif
 
 define rule_cc_o_c
 	$(call echo-cmd,checksrc) $(cmd_checksrc)			  \
+	rm -f $(dot-target).o;						  \
 	$(call echo-cmd,cc_o_c) $(cmd_cc_o_c);				  \
 	$(cmd_modversions)						  \
 	$(call echo-cmd,record_mcount)					  \
@@ -310,6 +311,7 @@ $(obj)/%.o: $(src)/%.c $(recordmcount_source) FORCE
 $(single-used-m): $(obj)/%.o: $(src)/%.c $(recordmcount_source) FORCE
 	$(call cmd,force_checksrc)
 	$(call if_changed_rule,cc_o_c)
+	@rm -f $(MODVERDIR)/$(@F:.o=.mod)
 	@{ echo $(@:.o=.ko); echo $@; } > $(MODVERDIR)/$(@F:.o=.mod)
 
 quiet_cmd_cc_lst_c = MKLST   $@
@@ -386,6 +388,7 @@ modorder-cmds =						\
 			cat $m;, echo kernel/$m;))
 
 $(modorder-target): $(subdir-ym) FORCE
+	@rm -f $@
 	$(Q)(cat /dev/null; $(modorder-cmds)) > $@
 
 #
@@ -428,6 +431,7 @@ $(multi-used-y) : %.o: $(multi-objs-y) FORCE
 
 $(multi-used-m) : %.o: $(multi-objs-m) FORCE
 	$(call if_changed,link_multi-m)
+	@rm -f $(MODVERDIR)/$(@F:.o=.mod)
 	@{ echo $(@:.o=.ko); echo $(link_multi_deps); } > $(MODVERDIR)/$(@F:.o=.mod)
 
 targets += $(multi-used-y) $(multi-used-m)

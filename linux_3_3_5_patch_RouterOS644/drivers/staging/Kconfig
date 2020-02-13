@@ -128,4 +128,6 @@ source "drivers/staging/omapdrm/Kconfig"
 
 source "drivers/staging/android/Kconfig"
 
+source "drivers/staging/fsl_qbman/Kconfig"
+
 endif # STAGING

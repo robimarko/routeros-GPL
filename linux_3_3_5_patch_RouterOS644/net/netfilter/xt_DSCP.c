@@ -32,16 +32,29 @@ dscp_tg(struct sk_buff *skb, const struct xt_action_param *par)
 {
 	const struct xt_DSCP_info *dinfo = par->targinfo;
 	u_int8_t dscp = ipv4_get_dsfield(ip_hdr(skb)) >> XT_DSCP_SHIFT;
+	u_int8_t new_dscp = 0;
+	if (dinfo->dscp <= XT_DSCP_MAX) {
+	    new_dscp = dinfo->dscp;
+	}
+	else if (dinfo->dscp == XT_DSCP_FROM_PRIORITY) {
+	    new_dscp = skb->priority;
+	}
+	else if (dinfo->dscp == XT_DSCP_HIGH_3_BITS_FROM_PRIORITY) {
+	    new_dscp = skb->priority << 3;
+	}
+	else {
+	    WARN_ON(1);
+	}
 
 	if (dscp != dinfo->dscp) {
 		if (!skb_make_writable(skb, sizeof(struct iphdr)))
 			return NF_DROP;
 
 		ipv4_change_dsfield(ip_hdr(skb), (__u8)(~XT_DSCP_MASK),
-				    dinfo->dscp << XT_DSCP_SHIFT);
+				    new_dscp << XT_DSCP_SHIFT);
 
 	}
-	return XT_CONTINUE;
+	return dinfo->passthrough ? XT_CONTINUE : NF_ACCEPT;
 }
 
 static unsigned int
@@ -57,17 +70,11 @@ dscp_tg6(struct sk_buff *skb, const struct xt_action_param *par)
 		ipv6_change_dsfield(ipv6_hdr(skb), (__u8)(~XT_DSCP_MASK),
 				    dinfo->dscp << XT_DSCP_SHIFT);
 	}
-	return XT_CONTINUE;
+	return dinfo->passthrough ? XT_CONTINUE : NF_ACCEPT;
 }
 
 static int dscp_tg_check(const struct xt_tgchk_param *par)
 {
-	const struct xt_DSCP_info *info = par->targinfo;
-
-	if (info->dscp > XT_DSCP_MAX) {
-		pr_info("dscp %x out of range\n", info->dscp);
-		return -EDOM;
-	}
 	return 0;
 }
 

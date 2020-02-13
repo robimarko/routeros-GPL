@@ -56,6 +56,12 @@ static void ide_generic_check_pci_legacy_iobases(int *primary, int *secondary)
 	struct pci_dev *p = NULL;
 	u16 val;
 
+#ifdef CONFIG_X86
+	/* disable secondary IDE on Geode LX, it's irq conflicts with USB */
+	if (cpu_info.x86 == 5 && cpu_info.x86_model == 10)
+		*secondary = 1;
+#endif
+
 	for_each_pci_dev(p) {
 		if (pci_resource_start(p, 0) == 0x1f0)
 			*primary = 1;

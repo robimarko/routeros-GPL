@@ -708,7 +708,8 @@ static int yenta_allocate_res(struct yenta_socket *socket, int nr, unsigned type
 
 	region.start = config_readl(socket, addr_start) & mask;
 	region.end = config_readl(socket, addr_end) | ~mask;
-	if (region.start && region.end > region.start && !override_bios) {
+	if (region.start && region.end > region.start
+		 && (region.end - region.start) >= 0x3fffff && !override_bios) {
 		pcibios_bus_to_resource(dev, res, &region);
 		if (pci_claim_resource(dev, PCI_BRIDGE_RESOURCES + nr) == 0)
 			return 0;

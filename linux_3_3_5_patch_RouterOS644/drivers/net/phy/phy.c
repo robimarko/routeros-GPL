@@ -437,7 +437,7 @@ void phy_start_machine(struct phy_device *phydev,
 {
 	phydev->adjust_state = handler;
 
-	schedule_delayed_work(&phydev->state_queue, HZ);
+	schedule_delayed_work(&phydev->state_queue, 1);
 }
 
 /**
@@ -867,7 +867,6 @@ void phy_state_machine(struct work_struct *work)
 				netif_carrier_on(phydev->attached_dev);
 			} else {
 				if (0 == phydev->link_timeout--) {
-					phy_force_reduction(phydev);
 					needs_aneg = 1;
 				}
 			}

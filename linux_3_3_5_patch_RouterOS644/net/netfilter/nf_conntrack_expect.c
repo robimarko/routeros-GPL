@@ -45,6 +45,12 @@ void nf_ct_unlink_expect_report(struct nf_conntrack_expect *exp,
 	struct nf_conn_help *master_help = nfct_help(exp->master);
 	struct net *net = nf_ct_exp_net(exp);
 
+#ifdef CONFIG_SMP
+	if (!spin_is_locked(&nf_conntrack_lock)) {
+	    printk("nf_conntrack_lock not taken\n");
+	    WARN_ON(1);
+	}
+#endif
 	NF_CT_ASSERT(master_help);
 	NF_CT_ASSERT(!timer_pending(&exp->timeout));
 
@@ -237,6 +243,7 @@ struct nf_conntrack_expect *nf_ct_expect_alloc(struct nf_conn *me)
 	new = kmem_cache_alloc(nf_ct_expect_cachep, GFP_ATOMIC);
 	if (!new)
 		return NULL;
+	memset(&new->lnode, 0, sizeof(new->lnode));
 
 	new->master = me;
 	atomic_set(&new->use, 1);
@@ -322,6 +329,10 @@ static int nf_ct_expect_insert(struct nf_conntrack_expect *exp)
 	/* two references : one for hash insert, one for the timer */
 	atomic_add(2, &exp->use);
 
+	if (exp->lnode.next && exp->lnode.next != LIST_POISON1) {
+	    printk("nf_conntrack_expect: double insert\n");
+	    WARN_ON(1);
+	}
 	hlist_add_head(&exp->lnode, &master_help->expectations);
 	master_help->expecting[exp->class]++;
 
@@ -361,23 +372,6 @@ static void evict_oldest_expect(struct nf_conn *master,
 	}
 }
 
-static inline int refresh_timer(struct nf_conntrack_expect *i)
-{
-	struct nf_conn_help *master_help = nfct_help(i->master);
-	const struct nf_conntrack_expect_policy *p;
-
-	if (!del_timer(&i->timeout))
-		return 0;
-
-	p = &rcu_dereference_protected(
-		master_help->helper,
-		lockdep_is_held(&nf_conntrack_lock)
-		)->expect_policy[i->class];
-	i->timeout.expires = jiffies + p->timeout * HZ;
-	add_timer(&i->timeout);
-	return 1;
-}
-
 static inline int __nf_ct_expect_check(struct nf_conntrack_expect *expect)
 {
 	const struct nf_conntrack_expect_policy *p;
@@ -386,7 +380,7 @@ static inline int __nf_ct_expect_check(struct nf_conntrack_expect *expect)
 	struct nf_conn_help *master_help = nfct_help(master);
 	struct nf_conntrack_helper *helper;
 	struct net *net = nf_ct_exp_net(expect);
-	struct hlist_node *n;
+	struct hlist_node *n, *next;
 	unsigned int h;
 	int ret = 1;
 
@@ -395,12 +389,12 @@ static inline int __nf_ct_expect_check(struct nf_conntrack_expect *expect)
 		goto out;
 	}
 	h = nf_ct_expect_dst_hash(&expect->tuple);
-	hlist_for_each_entry(i, n, &net->ct.expect_hash[h], hnode) {
+	hlist_for_each_entry_safe(i, n, next, &net->ct.expect_hash[h], hnode) {
 		if (expect_matches(i, expect)) {
-			/* Refresh timer: if it's dying, ignore.. */
-			if (refresh_timer(i)) {
-				ret = 0;
-				goto out;
+			if (del_timer(&i->timeout)) {
+				nf_ct_unlink_expect(i);
+				nf_ct_expect_put(i);
+				break;
 			}
 		} else if (expect_clash(i, expect)) {
 			ret = -EBUSY;

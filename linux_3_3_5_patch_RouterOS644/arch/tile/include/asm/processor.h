@@ -22,8 +22,12 @@
  * normally would, due to #include dependencies.
  */
 #include <linux/types.h>
+#include <linux/kernel.h>
+
 #include <asm/ptrace.h>
 #include <asm/percpu.h>
+
+#include <hv/hypervisor.h>
 
 #include <arch/chip.h>
 #include <arch/spr_def.h>
@@ -76,6 +80,17 @@ struct async_tlb {
 
 #ifdef CONFIG_HARDWALL
 struct hardwall_info;
+struct hardwall_task {
+	/* Which hardwall is this task tied to? (or NULL if none) */
+	struct hardwall_info *info;
+	/* Chains this task into the list at info->task_head. */
+	struct list_head list;
+};
+#ifdef __tilepro__
+#define HARDWALL_TYPES 1   /* udn */
+#else
+#define HARDWALL_TYPES 3   /* udn, idn, and ipi */
+#endif
 #endif
 
 struct thread_struct {
@@ -116,10 +131,8 @@ struct thread_struct {
 	unsigned long dstream_pf;
 #endif
 #ifdef CONFIG_HARDWALL
-	/* Is this task tied to an activated hardwall? */
-	struct hardwall_info *hardwall;
-	/* Chains this task into the list at hardwall->list. */
-	struct list_head hardwall_list;
+	/* Hardwall information for various resources. */
+	struct hardwall_task hardwall[HARDWALL_TYPES];
 #endif
 #if CHIP_HAS_TILE_DMA()
 	/* Async DMA TLB fault information */
@@ -130,6 +143,18 @@ struct thread_struct {
 	int sn_proc_running;
 	/* Async SNI TLB fault information */
 	struct async_tlb sn_async_tlb;
+#endif
+#ifdef CONFIG_HOMECACHE
+	/* Requested home for allocated pages. */
+	void *homecache_desired_home;
+	/*
+	 * Per-thread storage for migrating threads.
+	 * Header inclusion issues require an array of longs for a cpumask.
+	 */
+	bool homecache_is_migrating;
+	unsigned long homecache_cache_cpumask[BITS_TO_LONGS(NR_CPUS)];
+	unsigned long homecache_tlb_cpumask[BITS_TO_LONGS(NR_CPUS)];
+	HV_Remote_ASID homecache_rem_asids[NR_CPUS];
 #endif
 };
 
@@ -217,6 +242,25 @@ extern int kernel_thread(int (*fn)(void *), void *arg, unsigned long flags);
 
 extern int do_work_pending(struct pt_regs *regs, u32 flags);
 
+#ifdef CONFIG_HOMECACHE
+/* Helper routines for setting home cache modes at exec() time. */
+struct vm_area_struct;
+# if CHIP_HAS_CBOX_HOME_MAP()
+extern void arch_exec_env(const char __user *const __user *envp);
+extern void arch_exec_vma(struct vm_area_struct *);
+extern void arch_exec_map(unsigned long addr);
+#  ifdef CONFIG_COMPAT
+extern void compat_arch_exec_env(void __user *envp);
+#  endif
+# else
+static inline void arch_exec_env(const char __user *const __user *envp) {}
+static inline void arch_exec_vma(struct vm_area_struct *vma) {}
+static inline void arch_exec_map(unsigned long addr) {}
+#  ifdef CONFIG_COMPAT
+static inline compat_arch_exec_env(void __user *envp) {}
+#  endif
+# endif
+#endif
 
 /*
  * Return saved (kernel) PC of a blocked thread.
@@ -275,7 +319,11 @@ extern int hash_default;
 extern int kstack_hash;
 
 /* Does MAP_ANONYMOUS return hash-for-home pages by default? */
+#ifdef CONFIG_HOMECACHE
+extern int uheap_hash;
+#else
 #define uheap_hash hash_default
+#endif
 
 #else
 #define hash_default 0

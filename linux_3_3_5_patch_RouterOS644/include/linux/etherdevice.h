@@ -53,6 +53,33 @@ extern struct net_device *alloc_etherdev_mqs(int sizeof_priv, unsigned int txqs,
 #define alloc_etherdev(sizeof_priv) alloc_etherdev_mq(sizeof_priv, 1)
 #define alloc_etherdev_mq(sizeof_priv, count) alloc_etherdev_mqs(sizeof_priv, count, count)
 
+/* Reserved Ethernet Addresses per IEEE 802.1Q */
+static const u8 eth_reserved_addr_base[ETH_ALEN] __aligned(2) =
+{ 0x01, 0x80, 0xc2, 0x00, 0x00, 0x00 };
+
+/**
+ * is_link_local_ether_addr - Determine if given Ethernet address is link-local
+ * @addr: Pointer to a six-byte array containing the Ethernet address
+ *
+ * Return true if address is link local reserved addr (01:80:c2:00:00:0X) per
+ * IEEE 802.1Q 8.6.3 Frame filtering.
+ *
+ * Please note: addr must be aligned to u16.
+ */
+static inline bool is_link_local_ether_addr(const u8 *addr)
+{
+	__be16 *a = (__be16 *)addr;
+	static const __be16 *b = (const __be16 *)eth_reserved_addr_base;
+	static const __be16 m = cpu_to_be16(0xfff0);
+
+#if defined(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS)
+	return (((*(const u32 *)addr) ^ (*(const u32 *)b)) |
+		(__force int)((a[2] ^ b[2]) & m)) == 0;
+#else
+	return ((a[0] ^ b[0]) | (a[1] ^ b[1]) | ((a[2] ^ b[2]) & m)) == 0;
+#endif
+}
+
 /**
  * is_zero_ether_addr - Determine if give Ethernet address is all zeros.
  * @addr: Pointer to a six-byte array containing the Ethernet address
@@ -166,7 +193,9 @@ static inline unsigned compare_ether_addr(const u8 *addr1, const u8 *addr2)
 	const u16 *b = (const u16 *) addr2;
 
 	BUILD_BUG_ON(ETH_ALEN != 6);
-	return ((a[0] ^ b[0]) | (a[1] ^ b[1]) | (a[2] ^ b[2])) != 0;
+
+	return ((get_unaligned((u32 *) addr1) ^ get_unaligned((u32 *) addr2))
+		| (get_unaligned(&a[2]) ^ get_unaligned(&b[2]))) != 0;
 }
 
 static inline unsigned long zap_last_2bytes(unsigned long value)

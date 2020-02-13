@@ -459,6 +459,9 @@ static int proc_info (struct Scsi_Host *host, char *buffer,
 	SPRINTF("     Protocol: %s\n", us->protocol_name);
 	SPRINTF("    Transport: %s\n", us->transport_name);
 
+	SPRINTF("     VendorID: %04x\n", us->pusb_dev->descriptor.idVendor);
+	SPRINTF("     ProductID: %04x\n", us->pusb_dev->descriptor.idProduct);
+
 	/* show the device flags */
 	if (pos < buffer + length) {
 		pos += sprintf(pos, "       Quirks:");

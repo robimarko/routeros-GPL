@@ -33,7 +33,7 @@
 #define SQUASHFS_METADATA_LOG		13
 
 /* default size of data blocks */
-#define SQUASHFS_FILE_SIZE		131072
+#define SQUASHFS_FILE_SIZE		524288
 #define SQUASHFS_FILE_LOG		17
 
 /* default size of block device I/O */
@@ -213,7 +213,7 @@
 #define SQUASHFS_XATTR_OFFSET(A)	((unsigned int) ((A) & 0xffff))
 
 /* cached data constants for filesystem */
-#define SQUASHFS_CACHED_BLKS		8
+#define SQUASHFS_CACHED_BLKS		16
 
 #define SQUASHFS_MAX_FILE_SIZE_LOG	64
 

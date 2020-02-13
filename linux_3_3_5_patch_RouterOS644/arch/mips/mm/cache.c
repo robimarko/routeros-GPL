@@ -48,6 +48,7 @@ void (*flush_icache_all)(void);
 
 EXPORT_SYMBOL_GPL(local_flush_data_cache_page);
 EXPORT_SYMBOL(flush_data_cache_page);
+EXPORT_SYMBOL(flush_icache_range);
 
 #ifdef CONFIG_DMA_NONCOHERENT
 
@@ -57,6 +58,8 @@ void (*_dma_cache_wback)(unsigned long start, unsigned long size);
 void (*_dma_cache_inv)(unsigned long start, unsigned long size);
 
 EXPORT_SYMBOL(_dma_cache_wback_inv);
+EXPORT_SYMBOL(_dma_cache_wback);
+EXPORT_SYMBOL(_dma_cache_inv);
 
 #endif /* CONFIG_DMA_NONCOHERENT */
 

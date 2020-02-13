@@ -205,10 +205,12 @@ static int acct_on(char *name)
 	if (IS_ERR(file))
 		return PTR_ERR(file);
 
+#if 0
 	if (!S_ISREG(file->f_path.dentry->d_inode->i_mode)) {
 		filp_close(file, NULL);
 		return -EACCES;
 	}
+#endif
 
 	if (!file->f_op->write) {
 		filp_close(file, NULL);

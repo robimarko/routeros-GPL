@@ -279,6 +279,7 @@ static int pci_read_irq_line(struct pci_dev *pci_dev)
 
 	pr_debug(" Mapped to linux irq %d\n", virq);
 
+	pci_write_config_byte(pci_dev, PCI_INTERRUPT_LINE, virq);
 	pci_dev->irq = virq;
 
 	return 0;

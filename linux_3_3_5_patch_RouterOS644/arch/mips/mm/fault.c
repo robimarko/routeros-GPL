@@ -86,6 +86,12 @@ asmlinkage void __kprobes do_page_fault(struct pt_regs *regs, unsigned long writ
 		goto VMALLOC_FAULT_TARGET;
 #endif
 
+#ifdef CONFIG_MAPPED_KERNEL
+	/* in case we touched other VM memory */
+	if (KSEGX(address) == KSEG2)
+		goto VMALLOC_FAULT_TARGET;
+#endif
+
 	/*
 	 * If we're in an interrupt or have no user
 	 * context, we must not take the fault..

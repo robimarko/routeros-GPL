@@ -798,6 +798,25 @@ struct mm_struct *dup_mm(struct task_struct *tsk)
 	if (err)
 		goto free_pt;
 
+#ifdef CONFIG_HOMECACHE
+	{
+		/* Reset vm_pid on all vmas.  In the new mm_struct, we
+		 * want to switch anything that was associated with
+		 * the parent to be associated with the child, and
+		 * clear everything else.
+		 */
+		struct vm_area_struct *mpnt;
+		down_write_nested(&mm->mmap_sem, SINGLE_DEPTH_NESTING);
+		for (mpnt = mm->mmap; mpnt; mpnt = mpnt->vm_next) {
+			if (mpnt->vm_pid == current->pid)
+				mpnt->vm_pid = tsk->pid;
+			else
+				mpnt->vm_pid = 0;
+		}
+		up_write(&mm->mmap_sem);
+	}
+#endif
+
 	mm->hiwater_rss = get_mm_rss(mm);
 	mm->hiwater_vm = mm->total_vm;
 

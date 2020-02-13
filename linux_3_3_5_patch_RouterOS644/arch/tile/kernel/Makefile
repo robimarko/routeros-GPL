@@ -14,5 +14,12 @@ obj-$(CONFIG_COMPAT)		+= compat.o compat_signal.o
 obj-$(CONFIG_SMP)		+= smpboot.o smp.o tlb.o
 obj-$(CONFIG_MODULES)		+= module.o
 obj-$(CONFIG_EARLY_PRINTK)	+= early_printk.o
-obj-$(CONFIG_KEXEC)		+= machine_kexec.o relocate_kernel.o
+obj-$(CONFIG_KEXEC)		+= machine_kexec.o relocate_kernel_$(BITS).o
+ifdef CONFIG_TILEGX
+obj-$(CONFIG_PCI)		+= pci_gx.o
+else
 obj-$(CONFIG_PCI)		+= pci.o
+endif
+obj-$(CONFIG_PERF_EVENTS)	+= perf_event.o
+obj-$(CONFIG_USE_PMC)		+= pmc.o
+obj-$(CONFIG_JUMP_LABEL)	+= jump_label.o

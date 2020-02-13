@@ -104,6 +104,9 @@ enum pageflags {
 #ifdef CONFIG_MEMORY_FAILURE
 	PG_hwpoison,		/* hardware poisoned page. Don't touch */
 #endif
+#ifdef CONFIG_HOMECACHE
+	PG_homecache_nomigrate,	/* Page can't be homecache migrated */
+#endif
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 	PG_compound_lock,
 #endif
@@ -193,7 +196,7 @@ static inline int __TestClearPage##uname(struct page *page) { return 0; }
 
 struct page;	/* forward declaration */
 
-TESTPAGEFLAG(Locked, locked)
+TESTPAGEFLAG(Locked, locked) TESTSETFLAG(Locked, locked)
 PAGEFLAG(Error, error) TESTCLEARFLAG(Error, error)
 PAGEFLAG(Referenced, referenced) TESTCLEARFLAG(Referenced, referenced)
 PAGEFLAG(Dirty, dirty) TESTSCFLAG(Dirty, dirty) __CLEARPAGEFLAG(Dirty, dirty)
@@ -271,6 +274,10 @@ TESTSCFLAG(HWPoison, hwpoison)
 #else
 PAGEFLAG_FALSE(HWPoison)
 #define __PG_HWPOISON 0
+#endif
+
+#ifdef CONFIG_HOMECACHE
+__PAGEFLAG(HomecacheNomigrate, homecache_nomigrate)
 #endif
 
 u64 stable_page_flags(struct page *page);

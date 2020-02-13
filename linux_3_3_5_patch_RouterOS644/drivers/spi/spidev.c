@@ -642,10 +642,21 @@ static int __devexit spidev_remove(struct spi_device *spi)
 	return 0;
 }
 
+static const struct of_device_id spidev_dt_ids[] = {
+	{ .compatible = "rohm,dh2228fv" },
+	{ .compatible = "lineartechnology,ltc2488" },
+	{ .compatible = "ge,achc" },
+	{ .compatible = "semtech,sx1301" },
+	{},
+};
+
+MODULE_DEVICE_TABLE(of, spidev_dt_ids);
+
 static struct spi_driver spidev_spi_driver = {
 	.driver = {
 		.name =		"spidev",
 		.owner =	THIS_MODULE,
+		.of_match_table = spidev_dt_ids,
 	},
 	.probe =	spidev_probe,
 	.remove =	__devexit_p(spidev_remove),

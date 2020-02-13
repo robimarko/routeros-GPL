@@ -628,10 +628,11 @@ static int team_port_add(struct team *team, struct net_device *port_dev)
 		goto err_vids_add;
 	}
 
-	err = netdev_set_master(port_dev, dev);
+	err = netdev_master_upper_dev_link(port_dev, dev);
 	if (err) {
-		netdev_err(dev, "Device %s failed to set master\n", portname);
-		goto err_set_master;
+		netdev_err(dev, "Device %s failed to set upper link\n",
+			   portname);
+		goto err_set_upper_link;
 	}
 
 	err = netdev_rx_handler_register(port_dev, team_handle_frame,
@@ -652,9 +653,9 @@ static int team_port_add(struct team *team, struct net_device *port_dev)
 	return 0;
 
 err_handler_register:
-	netdev_set_master(port_dev, NULL);
+	netdev_upper_dev_unlink(port_dev, dev);
 
-err_set_master:
+err_set_upper_link:
 	vlan_vids_del_by_dev(port_dev, dev);
 
 err_vids_add:
@@ -691,7 +692,7 @@ static int team_port_del(struct team *team, struct net_device *port_dev)
 	team_port_list_del_port(team, port);
 	team_adjust_ops(team);
 	netdev_rx_handler_unregister(port_dev);
-	netdev_set_master(port_dev, NULL);
+	netdev_upper_dev_unlink(port_dev, dev);
 	vlan_vids_del_by_dev(port_dev, dev);
 	dev_close(port_dev);
 	team_port_leave(team, port);

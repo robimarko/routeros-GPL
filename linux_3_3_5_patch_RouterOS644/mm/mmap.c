@@ -94,6 +94,20 @@ int sysctl_max_map_count __read_mostly = DEFAULT_MAX_MAP_COUNT;
 struct percpu_counter vm_committed_as ____cacheline_aligned_in_smp;
 
 /*
+ * The global memory commitment made in the system can be a metric
+ * that can be used to drive ballooning decisions when Linux is hosted
+ * as a guest. On Hyper-V, the host implements a policy engine for dynamically
+ * balancing memory across competing virtual machines that are hosted.
+ * Several metrics drive this policy engine including the guest reported
+ * memory commitment.
+ */
+unsigned long vm_memory_committed(void)
+{
+	return percpu_counter_read_positive(&vm_committed_as);
+}
+EXPORT_SYMBOL_GPL(vm_memory_committed);
+
+/*
  * Check that a process has enough memory to allocate a new virtual
  * mapping. 0 means there is enough memory for the allocation to
  * succeed and -ENOMEM implies there is not.
@@ -142,6 +156,13 @@ int __vm_enough_memory(struct mm_struct *mm, long pages, int cap_sys_admin)
 		 * cache and most inode caches should fall into this
 		 */
 		free += global_page_state(NR_SLAB_RECLAIMABLE);
+#ifdef CONFIG_HOMECACHE
+		/*
+		 * We will unsequester these pages on demand in the
+		 * kernel page allocator, so consider them available.
+		 */
+		free += homecache_count_sequestered_pages(1, 1);
+#endif
 
 		/*
 		 * Leave reserved pages. The pages are not for anonymous pages.
@@ -428,7 +449,7 @@ __vma_link(struct mm_struct *mm, struct vm_area_struct *vma,
 	__vma_link_rb(mm, vma, rb_link, rb_parent);
 }
 
-static void vma_link(struct mm_struct *mm, struct vm_area_struct *vma,
+int vma_link(struct mm_struct *mm, struct vm_area_struct *vma,
 			struct vm_area_struct *prev, struct rb_node **rb_link,
 			struct rb_node *rb_parent)
 {
@@ -437,8 +458,17 @@ static void vma_link(struct mm_struct *mm, struct vm_area_struct *vma,
 	if (vma->vm_file)
 		mapping = vma->vm_file->f_mapping;
 
-	if (mapping)
+	if (mapping) {
 		mutex_lock(&mapping->i_mmap_mutex);
+
+#ifdef CONFIG_HOMECACHE
+		/* Make sure this mapping doesn't conflict with another. */
+		if (arch_vm_area_validate(vma, mapping) != 0) {
+			mutex_unlock(&mapping->i_mmap_mutex);
+			return -EINVAL;
+		}
+#endif
+	}
 
 	__vma_link(mm, vma, prev, rb_link, rb_parent);
 	__vma_link_file(vma);
@@ -448,6 +478,7 @@ static void vma_link(struct mm_struct *mm, struct vm_area_struct *vma,
 
 	mm->map_count++;
 	validate_mm(mm);
+	return 0;
 }
 
 /*
@@ -1202,6 +1233,21 @@ unsigned long mmap_region(struct file *file, unsigned long addr,
 	unsigned long charged = 0;
 	struct inode *inode =  file ? file->f_path.dentry->d_inode : NULL;
 
+#ifdef CONFIG_HOMECACHE
+	/*
+	 * Collect homecache-related information, and set VM_DONTMERGE if
+	 * any homecache state is required, to avoid losing it with merges.
+	 */
+	pid_t homecache_pid;
+	pgprot_t homecache_prot = { 0 };
+	error = arch_vm_area_flags(mm, flags, vm_flags,
+				   &homecache_pid, &homecache_prot);
+	if (error)
+		return error;
+	if (pgprot_val(homecache_prot))
+		vm_flags |= VM_DONTMERGE;
+#endif
+
 	/* Clear old maps */
 	error = -ENOMEM;
 munmap_back:
@@ -1264,6 +1310,10 @@ munmap_back:
 	vma->vm_flags = vm_flags;
 	vma->vm_page_prot = vm_get_page_prot(vm_flags);
 	vma->vm_pgoff = pgoff;
+#ifdef CONFIG_HOMECACHE
+	vma->vm_page_prot.val |= homecache_prot.val;
+	vma->vm_pid = homecache_pid;
+#endif
 	INIT_LIST_HEAD(&vma->anon_vma_chain);
 
 	error = -EINVAL;	/* when rejecting VM_GROWSDOWN|VM_GROWSUP */
@@ -1316,7 +1366,21 @@ munmap_back:
 			vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 	}
 
+#ifdef CONFIG_HOMECACHE
+	/*
+	 * We can only test for a valid shared-writable mapping
+	 * that forces home caching when we are holding the locks
+	 * and about to insert the new mapping.
+	 */
+	error = vma_link(mm, vma, prev, rb_link, rb_parent);
+	if (error) {
+		if (file && (vm_flags & VM_EXECUTABLE))
+			removed_exe_file_vma(mm);
+		goto unmap_and_free_vma;
+	}
+#else
 	vma_link(mm, vma, prev, rb_link, rb_parent);
+#endif
 	file = vma->vm_file;
 
 	/* Once vma denies write, undo our temporary denial count */
@@ -2206,6 +2270,12 @@ unsigned long do_brk(unsigned long addr, unsigned long len)
 	vma->vm_flags = flags;
 	vma->vm_page_prot = vm_get_page_prot(flags);
 	vma_link(mm, vma, prev, rb_link, rb_parent);
+#ifdef CONFIG_HOMECACHE
+	error = arch_vm_area_flags(mm, MAP_ANONYMOUS, flags,
+				   &vma->vm_pid, &vma->vm_page_prot);
+	BUG_ON(error != 0);
+	BUG_ON(vma->vm_pid != 0);
+#endif
 out:
 	perf_event_mmap(vma);
 	mm->total_vm += len >> PAGE_SHIFT;

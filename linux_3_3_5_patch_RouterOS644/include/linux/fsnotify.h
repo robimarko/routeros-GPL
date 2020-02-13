@@ -314,7 +314,7 @@ static inline void fsnotify_change(struct dentry *dentry, unsigned int ia_valid)
  */
 static inline const unsigned char *fsnotify_oldname_init(const unsigned char *name)
 {
-	return kstrdup(name, GFP_KERNEL);
+	return (const unsigned char *) kstrdup((const char *) name, GFP_KERNEL);
 }
 
 /*

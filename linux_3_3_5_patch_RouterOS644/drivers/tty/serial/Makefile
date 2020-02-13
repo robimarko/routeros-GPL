@@ -17,6 +17,8 @@ obj-$(CONFIG_SERIAL_SUNSAB) += sunsab.o
 # Now bring in any enabled 8250/16450/16550 type drivers.
 obj-$(CONFIG_SERIAL_8250) += 8250/
 
+obj-$(CONFIG_SERIAL_ADM5120) += adm5120_uart.o
+obj-$(CONFIG_SERIAL_AR9330) += ar9330_uart.o
 obj-$(CONFIG_SERIAL_AMBA_PL010) += amba-pl010.o
 obj-$(CONFIG_SERIAL_AMBA_PL011) += amba-pl011.o
 obj-$(CONFIG_SERIAL_CLPS711X) += clps711x.o
@@ -56,6 +58,7 @@ obj-$(CONFIG_SERIAL_ATMEL) += atmel_serial.o
 obj-$(CONFIG_SERIAL_UARTLITE) += uartlite.o
 obj-$(CONFIG_SERIAL_MSM) += msm_serial.o
 obj-$(CONFIG_SERIAL_MSM_HS) += msm_serial_hs.o
+obj-$(CONFIG_SERIAL_MSM_HSL) += msm_serial_hs_lite.o
 obj-$(CONFIG_SERIAL_NETX) += netx-serial.o
 obj-$(CONFIG_SERIAL_OF_PLATFORM) += of_serial.o
 obj-$(CONFIG_SERIAL_OF_PLATFORM_NWPSERIAL) += nwpserial.o
@@ -78,3 +81,5 @@ obj-$(CONFIG_SERIAL_LANTIQ)	+= lantiq.o
 obj-$(CONFIG_SERIAL_XILINX_PS_UART) += xilinx_uartps.o
 obj-$(CONFIG_SERIAL_SIRFSOC) += sirfsoc_uart.o
 obj-$(CONFIG_SERIAL_AR933X)   += ar933x_uart.o
+obj-$(CONFIG_SERIAL_CCR) += ccr_uart.o
+obj-$(CONFIG_SERIAL_TILEGX) += tilegx.o

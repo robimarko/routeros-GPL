@@ -290,15 +290,20 @@ int mii_nway_restart (struct mii_if_info *mii)
  * netif_carrier_on() if current link status is Up or call
  * netif_carrier_off() if current link status is Down.
  */
-void mii_check_link (struct mii_if_info *mii)
+int mii_check_link (struct mii_if_info *mii)
 {
 	int cur_link = mii_link_ok(mii);
 	int prev_link = netif_carrier_ok(mii->dev);
 
-	if (cur_link && !prev_link)
+	if (cur_link && !prev_link) {
+		printk("%s: link up\n", mii->dev->name);
 		netif_carrier_on(mii->dev);
-	else if (prev_link && !cur_link)
+	}
+	else if (prev_link && !cur_link) {
+		printk("%s: link down\n", mii->dev->name);
 		netif_carrier_off(mii->dev);
+	}
+	return cur_link;
 }
 
 /**

@@ -303,6 +303,7 @@ struct vmxnet3_intr {
 	char	event_msi_vector_name[IFNAMSIZ+11];
 #ifdef CONFIG_PCI_MSI
 	struct msix_entry msix_entries[VMXNET3_LINUX_MAX_MSIX_VECT];
+	cpumask_t affinity_masks[VMXNET3_LINUX_MAX_MSIX_VECT];
 #endif
 };
 
@@ -376,8 +377,8 @@ struct vmxnet3_adapter {
 #define VMXNET3_GET_ADDR_HI(dma)   ((u32)(((u64)(dma)) >> 32))
 
 /* must be a multiple of VMXNET3_RING_SIZE_ALIGN */
-#define VMXNET3_DEF_TX_RING_SIZE    512
-#define VMXNET3_DEF_RX_RING_SIZE    256
+#define VMXNET3_DEF_TX_RING_SIZE    1024
+#define VMXNET3_DEF_RX_RING_SIZE    1024
 
 #define VMXNET3_MAX_ETH_HDR_SIZE    22
 #define VMXNET3_MAX_SKB_BUF_SIZE    (3*1024)

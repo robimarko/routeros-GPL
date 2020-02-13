@@ -57,6 +57,9 @@ static int rx_copybreak;
    power state D3 so PXE booting fails. bootparam(7): via-rhine.avoid_D3=1 */
 static bool avoid_D3;
 
+/* Work-around for systems, where link should be on immediately after enable */
+static int disable_sleep_mode;
+
 /*
  * In case you are looking for 'options[]' or 'full_duplex[]', they
  * are gone. Use ethtool(8) instead.
@@ -74,9 +77,9 @@ static const int multicast_filter_limit = 32;
    Making the Tx ring too large decreases the effectiveness of channel
    bonding and packet priority.
    There are no ill effects from too-large receive rings. */
-#define TX_RING_SIZE	16
-#define TX_QUEUE_LEN	10	/* Limit ring entries actually used. */
-#define RX_RING_SIZE	64
+#define TX_RING_SIZE	128
+#define TX_QUEUE_LEN	120	/* Limit ring entries actually used. */
+#define RX_RING_SIZE	128
 
 /* Operational parameters that usually are not changed. */
 
@@ -105,6 +108,7 @@ static const int multicast_filter_limit = 32;
 #include <linux/crc32.h>
 #include <linux/if_vlan.h>
 #include <linux/bitops.h>
+#include <linux/rtnetlink.h>
 #include <linux/workqueue.h>
 #include <asm/processor.h>	/* Processor type for cache alignment. */
 #include <asm/io.h>
@@ -121,6 +125,10 @@ static const char version[] __devinitconst =
 #ifdef CONFIG_VIA_RHINE_MMIO
 #define USE_MMIO
 #else
+#endif
+
+#ifdef CONFIG_MIPS_MIKROTIK
+#undef USE_MMIO
 #endif
 
 MODULE_AUTHOR("Donald Becker <becker@scyld.com>");
@@ -831,8 +839,10 @@ static void __devinit rhine_hw_init(struct net_device *dev, long pioaddr)
 	if (rp->quirks & rqRhineI)
 		msleep(5);
 
+#if !defined CONFIG_MIPS_MIKROTIK && !defined CONFIG_RB_PPC
 	/* Reload EEPROM controlled bytes cleared by soft reset */
 	rhine_reload_eeprom(pioaddr, dev);
+#endif
 }
 
 static const struct net_device_ops rhine_netdev_ops = {
@@ -904,6 +914,7 @@ static int __devinit rhine_init_one(struct pci_dev *pdev,
 	rc = pci_enable_device(pdev);
 	if (rc)
 		goto err_out;
+        pci_set_power_state(pdev, PCI_D0);
 
 	/* this should always be supported */
 	rc = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
@@ -1016,6 +1027,8 @@ static int __devinit rhine_init_one(struct pci_dev *pdev,
 
 	netif_napi_add(dev, &rp->napi, rhine_napipoll, 64);
 
+	dev->l2mtu = 1600;
+
 	if (rp->quirks & rqRhineI)
 		dev->features |= NETIF_F_SG|NETIF_F_HW_CSUM;
 
@@ -1063,6 +1076,15 @@ static int __devinit rhine_init_one(struct pci_dev *pdev,
 	rp->mii_if.phy_id = phy_id;
 	if (avoid_D3)
 		netif_info(rp, probe, dev, "No D3 power state at shutdown\n");
+
+/*
+	if (!disable_sleep_mode) {
+		rtnl_lock();
+		iowrite8(0x80, ioaddr + 0xa1);
+		pci_set_power_state(pdev, PCI_D3hot);
+		rtnl_unlock();
+	}
+*/
 
 	return 0;
 
@@ -1137,7 +1159,7 @@ static void alloc_rbufs(struct net_device *dev)
 
 	rp->dirty_rx = rp->cur_rx = 0;
 
-	rp->rx_buf_sz = (dev->mtu <= 1500 ? PKT_BUF_SZ : dev->mtu + 32);
+	rp->rx_buf_sz = 1600 + 32;
 	rp->rx_head_desc = &rp->rx_ring[0];
 	next = rp->rx_ring_dma;
 
@@ -1564,6 +1586,11 @@ static int rhine_open(struct net_device *dev)
 	void __iomem *ioaddr = rp->base;
 	int rc;
 
+	rc = pci_enable_device(rp->pdev);
+	if (rc)
+		return rc;
+        pci_set_power_state(rp->pdev, PCI_D0);
+
 	rc = request_irq(rp->pdev->irq, rhine_interrupt, IRQF_SHARED, dev->name,
 			dev);
 	if (rc)
@@ -1804,7 +1831,7 @@ static void rhine_tx(struct net_device *dev)
 					 rp->tx_skbuff[entry]->len,
 					 PCI_DMA_TODEVICE);
 		}
-		dev_kfree_skb_irq(rp->tx_skbuff[entry]);
+		dev_kfree_skb(rp->tx_skbuff[entry]);
 		rp->tx_skbuff[entry] = NULL;
 		entry = (++rp->dirty_tx) % TX_RING_SIZE;
 	}
@@ -1915,7 +1942,7 @@ static int rhine_rx(struct net_device *dev, int limit)
 				skb_put(skb, pkt_len);
 				pci_unmap_single(rp->pdev,
 						 rp->rx_skbuff_dma[entry],
-						 rp->rx_buf_sz,
+						 pkt_len,
 						 PCI_DMA_FROMDEVICE);
 			}
 
@@ -2230,6 +2257,13 @@ static int rhine_close(struct net_device *dev)
 	free_rbufs(dev);
 	free_tbufs(dev);
 	free_ring(dev);
+
+/*
+	if (!disable_sleep_mode) {
+		iowrite8(0x80, ioaddr + 0xa1);
+		pci_set_power_state(rp->pdev, PCI_D3hot);
+	}
+*/
 
 	return 0;
 }

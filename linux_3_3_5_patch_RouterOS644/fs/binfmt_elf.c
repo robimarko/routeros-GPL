@@ -83,6 +83,10 @@ static int set_brk(unsigned long start, unsigned long end)
 		unsigned long addr;
 		down_write(&current->mm->mmap_sem);
 		addr = do_brk(start, end - start);
+#ifdef CONFIG_HOMECACHE
+		if (!BAD_ADDR(addr))
+			arch_exec_map(addr);
+#endif
 		up_write(&current->mm->mmap_sem);
 		if (BAD_ADDR(addr))
 			return addr;
@@ -347,6 +351,10 @@ static unsigned long elf_map(struct file *filep, unsigned long addr,
 	} else
 		map_addr = do_mmap(filep, addr, size, prot, type, off);
 
+#ifdef CONFIG_HOMECACHE
+	if (!BAD_ADDR(map_addr))
+		arch_exec_map(map_addr);
+#endif
 	up_write(&current->mm->mmap_sem);
 	return(map_addr);
 }
@@ -515,6 +523,10 @@ static unsigned long load_elf_interp(struct elfhdr *interp_elf_ex,
 		/* Map the last of the bss segment */
 		down_write(&current->mm->mmap_sem);
 		error = do_brk(elf_bss, last_bss - elf_bss);
+#ifdef CONFIG_HOMECACHE
+		if (!BAD_ADDR(error) && last_bss > elf_bss)
+			arch_exec_map(elf_bss);
+#endif
 		up_write(&current->mm->mmap_sem);
 		if (BAD_ADDR(error))
 			goto out_close;

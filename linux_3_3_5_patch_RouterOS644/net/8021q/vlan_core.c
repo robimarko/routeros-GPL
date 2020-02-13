@@ -8,11 +8,27 @@
 bool vlan_do_receive(struct sk_buff **skbp, bool last_handler)
 {
 	struct sk_buff *skb = *skbp;
-	u16 vlan_id = skb->vlan_tci & VLAN_VID_MASK;
+	unsigned short proto;
+	unsigned short vlan_tci;
+	u16 vlan_id;
 	struct net_device *vlan_dev;
 	struct vlan_pcpu_stats *rx_stats;
 
-	vlan_dev = vlan_find_dev(skb->dev, vlan_id);
+	if (unlikely(vlan_tx_tag_present(skb))) {
+		proto = ETH_P_8021Q;
+		vlan_tci = skb->vlan_tci;
+	}
+	else {
+		struct vlan_hdr *vhdr = (struct vlan_hdr *) skb->data;
+		proto = ntohs(skb->protocol);
+		vlan_tci = ntohs(vhdr->h_vlan_TCI);
+	}
+
+	vlan_id = vlan_tci & VLAN_VID_MASK;
+
+	skb->ingress_priority = vlan_tci >> 13;
+
+	vlan_dev = vlan_find_dev(skb->dev, vlan_id, proto);
 	if (!vlan_dev) {
 		/* Only the last call to vlan_do_receive() should change
 		 * pkt_type to PACKET_OTHERHOST
@@ -21,8 +37,7 @@ bool vlan_do_receive(struct sk_buff **skbp, bool last_handler)
 			skb->pkt_type = PACKET_OTHERHOST;
 		return false;
 	}
-
-	skb = *skbp = skb_share_check(skb, GFP_ATOMIC);
+	skb = *skbp = vlan_untag(*skbp);
 	if (unlikely(!skb))
 		return false;
 
@@ -45,14 +60,18 @@ bool vlan_do_receive(struct sk_buff **skbp, bool last_handler)
 		 * original position later
 		 */
 		skb_push(skb, offset);
-		skb = *skbp = vlan_insert_tag(skb, skb->vlan_tci);
+		skb = *skbp = vlan_insert_tag(skb, vlan_tci, proto);
 		if (!skb)
 			return false;
 		skb_pull(skb, offset + VLAN_HLEN);
 		skb_reset_mac_len(skb);
 	}
 
+#if 0
 	skb->priority = vlan_get_ingress_priority(vlan_dev, skb->vlan_tci);
+#else
+        skb->ingress_priority = vlan_tci >> 13;
+#endif
 	skb->vlan_tci = 0;
 
 	rx_stats = this_cpu_ptr(vlan_dev_priv(vlan_dev)->vlan_pcpu_stats);
@@ -67,21 +86,25 @@ bool vlan_do_receive(struct sk_buff **skbp, bool last_handler)
 	return true;
 }
 
-/* Must be invoked with rcu_read_lock or with RTNL. */
-struct net_device *__vlan_find_dev_deep(struct net_device *real_dev,
+/* Must be invoked with rcu_read_lock. */
+struct net_device *__vlan_find_dev_deep(struct net_device *dev,
 					u16 vlan_id)
 {
-	struct vlan_info *vlan_info = rcu_dereference_rtnl(real_dev->vlan_info);
+	struct vlan_info *vlan_info = rcu_dereference(dev->vlan_info);
 
 	if (vlan_info) {
 		return vlan_group_get_device(&vlan_info->grp, vlan_id);
 	} else {
 		/*
-		 * Bonding slaves do not have grp assigned to themselves.
-		 * Grp is assigned to bonding master instead.
+		 * Lower devices of master uppers (bonding, team) do not have
+		 * grp assigned to themselves. Grp is assigned to upper device
+		 * instead.
 		 */
-		if (netif_is_bond_slave(real_dev))
-			return __vlan_find_dev_deep(real_dev->master, vlan_id);
+		struct net_device *upper_dev;
+
+		upper_dev = netdev_master_upper_dev_get_rcu(dev);
+		if (upper_dev)
+			return __vlan_find_dev_deep(upper_dev, vlan_id);
 	}
 
 	return NULL;
@@ -146,6 +169,7 @@ err_free:
 	kfree_skb(skb);
 	return NULL;
 }
+EXPORT_SYMBOL(vlan_untag);
 
 
 /*
@@ -215,7 +239,7 @@ static struct vlan_vid_info *vlan_vid_info_alloc(unsigned short vid)
 }
 
 static int __vlan_vid_add(struct vlan_info *vlan_info, unsigned short vid,
-			  struct vlan_vid_info **pvid_info)
+			  struct vlan_vid_info **pvid_info, unsigned short proto)
 {
 	struct net_device *dev = vlan_info->real_dev;
 	const struct net_device_ops *ops = dev->netdev_ops;
@@ -226,7 +250,8 @@ static int __vlan_vid_add(struct vlan_info *vlan_info, unsigned short vid,
 	if (!vid_info)
 		return -ENOMEM;
 
-	if ((dev->features & NETIF_F_HW_VLAN_FILTER) &&
+	if (proto == ETH_P_8021Q &&
+	    (dev->features & NETIF_F_HW_VLAN_FILTER) &&
 	    ops->ndo_vlan_rx_add_vid) {
 		err =  ops->ndo_vlan_rx_add_vid(dev, vid);
 		if (err) {
@@ -240,7 +265,7 @@ static int __vlan_vid_add(struct vlan_info *vlan_info, unsigned short vid,
 	return 0;
 }
 
-int vlan_vid_add(struct net_device *dev, unsigned short vid)
+int vlan_vid_add(struct net_device *dev, unsigned short vid, unsigned short proto)
 {
 	struct vlan_info *vlan_info;
 	struct vlan_vid_info *vid_info;
@@ -249,7 +274,7 @@ int vlan_vid_add(struct net_device *dev, unsigned short vid)
 
 	ASSERT_RTNL();
 
-	vlan_info = rtnl_dereference(dev->vlan_info);
+	vlan_info = vlan_get_info(dev, proto);
 	if (!vlan_info) {
 		vlan_info = vlan_info_alloc(dev);
 		if (!vlan_info)
@@ -258,14 +283,18 @@ int vlan_vid_add(struct net_device *dev, unsigned short vid)
 	}
 	vid_info = vlan_vid_info_get(vlan_info, vid);
 	if (!vid_info) {
-		err = __vlan_vid_add(vlan_info, vid, &vid_info);
+		err = __vlan_vid_add(vlan_info, vid, &vid_info, proto);
 		if (err)
 			goto out_free_vlan_info;
 	}
 	vid_info->refcount++;
 
-	if (vlan_info_created)
+	if (vlan_info_created) {
+		if (proto == ETH_P_8021Q)
 		rcu_assign_pointer(dev->vlan_info, vlan_info);
+		else
+			rcu_assign_pointer(dev->vlan_info_alt, vlan_info);
+	}
 
 	return 0;
 
@@ -277,14 +306,16 @@ out_free_vlan_info:
 EXPORT_SYMBOL(vlan_vid_add);
 
 static void __vlan_vid_del(struct vlan_info *vlan_info,
-			   struct vlan_vid_info *vid_info)
+			   struct vlan_vid_info *vid_info,
+			   unsigned short proto)
 {
 	struct net_device *dev = vlan_info->real_dev;
 	const struct net_device_ops *ops = dev->netdev_ops;
 	unsigned short vid = vid_info->vid;
 	int err;
 
-	if ((dev->features & NETIF_F_HW_VLAN_FILTER) &&
+	if (proto == ETH_P_8021Q &&
+	    (dev->features & NETIF_F_HW_VLAN_FILTER) &&
 	     ops->ndo_vlan_rx_kill_vid) {
 		err = ops->ndo_vlan_rx_kill_vid(dev, vid);
 		if (err) {
@@ -297,14 +328,14 @@ static void __vlan_vid_del(struct vlan_info *vlan_info,
 	vlan_info->nr_vids--;
 }
 
-void vlan_vid_del(struct net_device *dev, unsigned short vid)
+void vlan_vid_del(struct net_device *dev, unsigned short vid, unsigned short proto)
 {
 	struct vlan_info *vlan_info;
 	struct vlan_vid_info *vid_info;
 
 	ASSERT_RTNL();
 
-	vlan_info = rtnl_dereference(dev->vlan_info);
+	vlan_info = vlan_get_info(dev, proto);
 	if (!vlan_info)
 		return;
 
@@ -313,9 +344,12 @@ void vlan_vid_del(struct net_device *dev, unsigned short vid)
 		return;
 	vid_info->refcount--;
 	if (vid_info->refcount == 0) {
-		__vlan_vid_del(vlan_info, vid_info);
+		__vlan_vid_del(vlan_info, vid_info, proto);
 		if (vlan_info->nr_vids == 0) {
+			if (proto == ETH_P_8021Q)
 			RCU_INIT_POINTER(dev->vlan_info, NULL);
+			else
+				RCU_INIT_POINTER(dev->vlan_info_alt, NULL);
 			call_rcu(&vlan_info->rcu, vlan_info_rcu_free);
 		}
 	}
@@ -336,7 +370,7 @@ int vlan_vids_add_by_dev(struct net_device *dev,
 		return 0;
 
 	list_for_each_entry(vid_info, &vlan_info->vid_list, list) {
-		err = vlan_vid_add(dev, vid_info->vid);
+		err = vlan_vid_add(dev, vid_info->vid, ETH_P_8021Q);
 		if (err)
 			goto unwind;
 	}
@@ -346,7 +380,7 @@ unwind:
 	list_for_each_entry_continue_reverse(vid_info,
 					     &vlan_info->vid_list,
 					     list) {
-		vlan_vid_del(dev, vid_info->vid);
+		vlan_vid_del(dev, vid_info->vid, ETH_P_8021Q);
 	}
 
 	return err;
@@ -366,6 +400,6 @@ void vlan_vids_del_by_dev(struct net_device *dev,
 		return;
 
 	list_for_each_entry(vid_info, &vlan_info->vid_list, list)
-		vlan_vid_del(dev, vid_info->vid);
+		vlan_vid_del(dev, vid_info->vid, ETH_P_8021Q);
 }
 EXPORT_SYMBOL(vlan_vids_del_by_dev);

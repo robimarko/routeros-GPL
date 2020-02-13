@@ -27,6 +27,7 @@
 #include <linux/kernel.h>
 #include <linux/tracehook.h>
 #include <linux/signal.h>
+#include <linux/uaccess.h>
 #include <asm/system.h>
 #include <asm/stack.h>
 #include <asm/homecache.h>
@@ -72,6 +73,33 @@ void cpu_idle(void)
 {
 	int cpu = smp_processor_id();
 
+#ifdef CONFIG_HOMECACHE
+	/*
+	 * If we enter cpu_idle with our stack still set to be the
+	 * initial stack, we switch to a new stack page now (and
+	 * free the initial stack back to the heap).
+	 * This allows the boot cpu's idle process to run with a
+	 * stack that has proper homecaching.
+	 */
+	if (current_thread_info() == &init_thread_union.thread_info) {
+		struct thread_info *ti = alloc_thread_info_node(current, 0);
+		struct task_struct *p = current;
+		struct page *page = virt_to_page(current_thread_info());
+		int i;
+		*ti = *current_thread_info();
+		p->stack = ti;
+		p->thread.ksp = KSTK_TOP(p);
+		for (i = 0; i < THREAD_SIZE_PAGES; ++i, ++page) {
+			clear_bit(PG_homecache_nomigrate, &page->flags);
+			ClearPageReserved(page);
+			if (i != 0)
+				atomic_set(&page->_count, 0);
+		}
+		cpu_idle_on_new_stack(current_thread_info(), p->thread.ksp,
+				      next_current_ksp0(p));
+		/*NOTREACHED*/
+	}
+#endif
 
 	current_thread_info()->status |= TS_POLLING;
 
@@ -118,12 +146,25 @@ struct thread_info *alloc_thread_info_node(struct task_struct *task, int node)
 {
 	struct page *page;
 	gfp_t flags = GFP_KERNEL;
+#ifdef CONFIG_HOMECACHE
+	int home;
+#endif
 
 #ifdef CONFIG_DEBUG_STACK_USAGE
 	flags |= __GFP_ZERO;
 #endif
 
+#ifdef CONFIG_HOMECACHE
+#if CHIP_HAS_CBOX_HOME_MAP()
+	if (kstack_hash)
+		home = PAGE_HOME_HASH;
+	else
+#endif
+		home = PAGE_HOME_HERE;
+	page = homecache_alloc_pages(flags, THREAD_SIZE_ORDER, home);
+#else
 	page = alloc_pages_node(node, flags, THREAD_SIZE_ORDER);
+#endif
 	if (!page)
 		return NULL;
 
@@ -145,10 +186,10 @@ void free_thread_info(struct thread_info *info)
 	 * Calling deactivate here just frees up the data structures.
 	 * If the task we're freeing held the last reference to a
 	 * hardwall fd, it would have been released prior to this point
-	 * anyway via exit_files(), and "hardwall" would be NULL by now.
+	 * anyway via exit_files(), and the hardwall_task.info pointers
+	 * would be NULL by now.
 	 */
-	if (info->task->thread.hardwall)
-		hardwall_deactivate(info->task);
+	hardwall_deactivate_all(info->task);
 #endif
 
 	if (step_state) {
@@ -264,7 +305,13 @@ int copy_thread(unsigned long clone_flags, unsigned long sp,
 
 #ifdef CONFIG_HARDWALL
 	/* New thread does not own any networks. */
-	p->thread.hardwall = NULL;
+	memset(&p->thread.hardwall[0], 0,
+	       sizeof(struct hardwall_task) * HARDWALL_TYPES);
+#endif
+
+#ifdef CONFIG_HOMECACHE
+	/* New thread gets memory without any homecache overrides. */
+	p->thread.homecache_desired_home = NULL;
 #endif
 
 
@@ -286,7 +333,7 @@ struct task_struct *validate_current(void)
 	static struct task_struct corrupt = { .comm = "<corrupt>" };
 	struct task_struct *tsk = current;
 	if (unlikely((unsigned long)tsk < PAGE_OFFSET ||
-		     (void *)tsk > high_memory ||
+		     (high_memory && (void *)tsk > high_memory) ||
 		     ((unsigned long)tsk & (__alignof__(*tsk) - 1)) != 0)) {
 		pr_err("Corrupt 'current' %p (sp %#lx)\n", tsk, stack_pointer);
 		tsk = &corrupt;
@@ -534,12 +581,7 @@ struct task_struct *__sched _switch_to(struct task_struct *prev,
 
 #ifdef CONFIG_HARDWALL
 	/* Enable or disable access to the network registers appropriately. */
-	if (prev->thread.hardwall != NULL) {
-		if (next->thread.hardwall == NULL)
-			restrict_network_mpls();
-	} else if (next->thread.hardwall != NULL) {
-		grant_network_mpls();
-	}
+	hardwall_switch_tasks(prev, next);
 #endif
 
 	/*
@@ -567,6 +609,13 @@ struct task_struct *__sched _switch_to(struct task_struct *prev,
  */
 int do_work_pending(struct pt_regs *regs, u32 thread_info_flags)
 {
+	/* If we enter in kernel mode, do nothing and exit the caller loop. */
+	if (!user_mode(regs))
+		return 0;
+
+	/* Enable interrupts; they are disabled again on return to caller. */
+	local_irq_enable();
+
 	if (thread_info_flags & _TIF_NEED_RESCHED) {
 		schedule();
 		return 1;
@@ -589,7 +638,6 @@ int do_work_pending(struct pt_regs *regs, u32 thread_info_flags)
 		return 1;
 	}
 	if (thread_info_flags & _TIF_SINGLESTEP) {
-		if ((regs->ex1 & SPR_EX_CONTEXT_1_1__PL_MASK) == 0)
 			single_step_once(regs);
 		return 0;
 	}
@@ -714,11 +762,43 @@ void exit_thread(void)
 	/* Nothing */
 }
 
+static void show_instructions(struct pt_regs *regs)
+{
+	unsigned instructions_to_print = 8;
+	int i;
+	unsigned long pc = regs->pc - (instructions_to_print / 2 * sizeof(long));
+
+	printk("Instruction dump:");
+
+	for (i = 0; i < instructions_to_print; i++) {
+		unsigned long instr;
+
+		if (!(i % 4))
+			printk("\n");
+
+		if (!__kernel_text_address(pc) ||
+		     __get_user(instr, (unsigned long __user *)pc)) {
+			printk(KERN_CONT "XXXXXXXXXXXXXXXX ");
+		} else {
+			if (regs->pc == pc)
+				printk(KERN_CONT "<%016lx> ", instr);
+			else
+				printk(KERN_CONT "%016lx ", instr);
+		}
+
+		pc += sizeof(long);
+	}
+
+	printk("\n");
+}
+
+
 void show_regs(struct pt_regs *regs)
 {
 	struct task_struct *tsk = validate_current();
 	int i;
 
+	oops_enter();
 	pr_err("\n");
 	pr_err(" Pid: %d, comm: %20s, CPU: %d\n",
 	       tsk->pid, tsk->comm, smp_processor_id());
@@ -742,5 +822,7 @@ void show_regs(struct pt_regs *regs)
 	pr_err(" pc : "REGFMT" ex1: %ld     faultnum: %ld\n",
 	       regs->pc, regs->ex1, regs->faultnum);
 
+	show_instructions(regs);
 	dump_stack_regs(regs);
+	oops_exit();
 }

@@ -1,0 +1,86 @@
+config TILE_GXIO
+	bool "Tilera Gx I/O support"
+	default y
+	depends on TILEGX
+	---help---
+	  This option supports direct access to TILE-Gx hardware from
+	  user space, via the gxio library, or from kernel space, via
+	  kernel IORPC support.
+
+config TILE_GXIO_DMA
+	bool "Tilera Gx I/O DMA support"
+	default y
+	depends on TILE_GXIO
+	---help---
+	  This option supports direct access to the common I/O DMA facility
+	  within the TILE-Gx mPIPE and Trio hardware.  It is not required
+	  in order to use the gxio library to access mPIPE or Trio from
+	  user space.
+
+config TILE_GXIO_MPIPE
+	bool "Tilera Gx mPIPE I/O support"
+	default y
+	depends on TILE_GXIO && TILE_GXIO_DMA
+	---help---
+	  This option supports direct access to the TILE-Gx mPIPE hardware
+	  from kernel space.  It is not required in order to use the gxio
+	  library to access mPIPE from user space.
+
+config TILE_GXIO_GPIO
+	bool "Tilera Gx GPIO I/O support"
+	default y
+	depends on TILE_GXIO
+	---help---
+	  This option supports direct access to the TILE-Gx GPIO hardware
+	  from kernel space.  It is not required in order to use the gxio
+	  library to access GPIO pins from user space.
+
+config TILE_GXIO_TRIO
+	bool "Tilera Gx TRIO I/O support"
+	default y
+	depends on TILE_GXIO && TILE_GXIO_DMA
+	---help---
+	  This option supports direct access to the TILE-Gx TRIO hardware
+	  from kernel space.  It is not required in order to use the gxio
+	  library to access TRIO from user space.
+
+config TILE_GXIO_USB_HOST
+	bool "Tilera Gx USB Host I/O support"
+	default y
+	depends on TILE_GXIO
+	---help---
+	  This option supports direct access to the TILE-Gx USB host adapter
+	  hardware from kernel space.  It is required to use the Tilera USB
+	  host driver.
+
+config TILE_GXIO_PKA
+	bool "Tilera Gx Public Key Accelerator support"
+	default y
+	depends on TILE_GXIO
+	---help---
+	  This option supports direct access to the TILE-Gx PKA hardware
+	  from kernel space.
+
+config TILE_GXIO_MICA
+	bool "Tilera TILE-Gx Crypto Hardware Acceleration support"
+	depends on TILEGX
+	default y
+	select TILE_GXIO
+	---help---
+	  This options supports direct access to the crypto acceleration
+	  hardware from kernel space.
+
+config TILE_GXIO_GXCR
+	bool "Tilera TILE-Gx Crypto library support"
+	depends on TILEGX
+	default y
+	select TILE_GXIO_MICA
+	---help---
+	  This options supports a mid-level API for access to the
+	  Tilera TILE-Gx crypto accelerator engine from kernel space.
+
+config TILE_GXIO_UART
+	bool "Tilera TILE-Gx UART support"
+	depends on TILEGX
+	default y
+	select TILE_GXIO

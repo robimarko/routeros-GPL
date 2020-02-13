@@ -4,6 +4,7 @@ DRIVER_OBJS = $(addprefix ../../../drivers/oprofile/, \
 		oprof.o cpu_buffer.o buffer_sync.o \
 		event_buffer.o oprofile_files.o \
 		oprofilefs.o oprofile_stats.o  \
+		hrtimer.o \
 		timer_int.o nmi_timer_int.o )
 
 oprofile-y				:= $(DRIVER_OBJS) init.o backtrace.o

@@ -43,7 +43,7 @@ ipt_mangle_out(struct sk_buff *skb, const struct net_device *out)
 	const struct iphdr *iph;
 	u_int8_t tos;
 	__be32 saddr, daddr;
-	u_int32_t mark;
+	u_int32_t prmark;
 
 	/* root is playing with raw sockets. */
 	if (skb->len < sizeof(struct iphdr) ||
@@ -51,7 +51,7 @@ ipt_mangle_out(struct sk_buff *skb, const struct net_device *out)
 		return NF_ACCEPT;
 
 	/* Save things which could affect route */
-	mark = skb->mark;
+	prmark = skb->prmark;
 	iph = ip_hdr(skb);
 	saddr = iph->saddr;
 	daddr = iph->daddr;
@@ -65,7 +65,7 @@ ipt_mangle_out(struct sk_buff *skb, const struct net_device *out)
 
 		if (iph->saddr != saddr ||
 		    iph->daddr != daddr ||
-		    skb->mark != mark ||
+		    skb->prmark != prmark ||
 		    iph->tos != tos)
 			if (ip_route_me_harder(skb, RTN_UNSPEC))
 				ret = NF_DROP;

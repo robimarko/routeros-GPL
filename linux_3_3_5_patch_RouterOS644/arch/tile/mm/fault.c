@@ -131,7 +131,7 @@ static inline pmd_t *vmalloc_sync_one(pgd_t *pgd, unsigned long address)
 }
 
 /*
- * Handle a fault on the vmalloc or module mapping area
+ * Handle a fault on the vmalloc area.
  */
 static inline int vmalloc_fault(pgd_t *pgd, unsigned long address)
 {
@@ -188,7 +188,7 @@ static pgd_t *get_current_pgd(void)
 	HV_Context ctx = hv_inquire_context();
 	unsigned long pgd_pfn = ctx.page_table >> PAGE_SHIFT;
 	struct page *pgd_page = pfn_to_page(pgd_pfn);
-	BUG_ON(PageHighMem(pgd_page));   /* oops, HIGHPTE? */
+	BUG_ON(PageHighMem(pgd_page));
 	return (pgd_t *) __va(ctx.page_table);
 }
 
@@ -206,7 +206,7 @@ static pgd_t *get_current_pgd(void)
  * fault caused by an atomic op access.
  */
 static int handle_migrating_pte(pgd_t *pgd, int fault_num,
-				unsigned long address,
+				unsigned long address, unsigned long pc,
 				int is_kernel_mode, int write)
 {
 	pud_t *pud;
@@ -228,6 +228,20 @@ static int handle_migrating_pte(pgd_t *pgd, int fault_num,
 		pte_offset_kernel(pmd, address);
 	pteval = *pte;
 	if (pte_migrating(pteval)) {
+#ifdef CONFIG_HOMECACHE
+		/*
+		 * If we find a migrating PTE while we're in an NMI
+		 * context, and we're at a PC that has a registered
+		 * exception handler, we don't wait, since this thread may
+		 * (e.g.) have been interrupted while migrating its own
+		 * stack, which would then cause us to self-deadlock.
+		 * Or, similarly, we may be emitting a hv_flush_update()
+		 * backtrace warning from DP_DEBUG mode while migrating.
+		 */
+		if (current->thread.homecache_is_migrating &&
+		    search_exception_tables(pc))
+			return 0;
+#endif
 		wait_for_migration(pte);
 		return 1;
 	}
@@ -267,10 +281,14 @@ static int handle_page_fault(struct pt_regs *regs,
 	int si_code;
 	int is_kernel_mode;
 	pgd_t *pgd;
+	unsigned int flags;
 
 	/* on TILE, protection faults are always writes */
 	if (!is_page_fault)
 		write = 1;
+
+	flags = (FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE |
+		 (write ? FAULT_FLAG_WRITE : 0));
 
 	is_kernel_mode = (EX1_PL(regs->ex1) != USER_PL);
 
@@ -301,7 +319,7 @@ static int handle_page_fault(struct pt_regs *regs,
 	 * rather than trying to patch up the existing PTE.
 	 */
 	pgd = get_current_pgd();
-	if (handle_migrating_pte(pgd, fault_num, address,
+	if (handle_migrating_pte(pgd, fault_num, address, regs->pc,
 				 is_kernel_mode, write))
 		return 1;
 
@@ -336,8 +354,11 @@ static int handle_page_fault(struct pt_regs *regs,
 	/*
 	 * If we're trying to touch user-space addresses, we must
 	 * be either at PL0, or else with interrupts enabled in the
-	 * kernel, so either way we can re-enable interrupts here.
+	 * kernel, so either way we can re-enable interrupts here
+	 * unless we are doing atomic access to user space with
+	 * interrupts disabled.
 	 */
+	if (!(regs->flags & PT_FLAGS_DISABLE_IRQ))
 	local_irq_enable();
 
 	mm = tsk->mm;
@@ -373,6 +394,8 @@ static int handle_page_fault(struct pt_regs *regs,
 			vma = NULL;  /* happy compiler */
 			goto bad_area_nosemaphore;
 		}
+
+retry:
 		down_read(&mm->mmap_sem);
 	}
 
@@ -420,7 +443,11 @@ good_area:
 	 * make sure we exit gracefully rather than endlessly redo
 	 * the fault.
 	 */
-	fault = handle_mm_fault(mm, vma, address, write);
+	fault = handle_mm_fault(mm, vma, address, flags);
+
+	if ((fault & VM_FAULT_RETRY) && fatal_signal_pending(current))
+		return 0;
+
 	if (unlikely(fault & VM_FAULT_ERROR)) {
 		if (fault & VM_FAULT_OOM)
 			goto out_of_memory;
@@ -428,10 +455,22 @@ good_area:
 			goto do_sigbus;
 		BUG();
 	}
+	if (flags & FAULT_FLAG_ALLOW_RETRY) {
 	if (fault & VM_FAULT_MAJOR)
 		tsk->maj_flt++;
 	else
 		tsk->min_flt++;
+		if (fault & VM_FAULT_RETRY) {
+			flags &= ~FAULT_FLAG_ALLOW_RETRY;
+
+			 /*
+			  * No need to up_read(&mm->mmap_sem) as we would
+			  * have already released it in __lock_page_or_retry
+			  * in mm/filemap.c.
+			  */
+			goto retry;
+		}
+	}
 
 #if CHIP_HAS_TILE_DMA() || CHIP_HAS_SN_PROC()
 	/*
@@ -508,7 +547,7 @@ no_context:
 		pr_alert("Unable to handle kernel NULL pointer dereference\n");
 	else
 		pr_alert("Unable to handle kernel paging request\n");
-	pr_alert(" at virtual address "REGFMT", pc "REGFMT"\n",
+	pr_alert(" at virtual address "REGFMT", pc %pS\n",
 		 address, regs->pc);
 
 	show_regs(regs);
@@ -666,7 +705,7 @@ struct intvec_state do_page_fault_ics(struct pt_regs *regs, int fault_num,
 	 */
 	if (fault_num == INT_DTLB_ACCESS)
 		write = 1;
-	if (handle_migrating_pte(pgd, fault_num, address, 1, write))
+	if (handle_migrating_pte(pgd, fault_num, address, pc, 1, write))
 		return state;
 
 	/* Return zero so that we continue on with normal fault handling. */
@@ -837,7 +876,8 @@ void vmalloc_sync_all(void)
 {
 #ifdef __tilegx__
 	/* Currently all L1 kernel pmd's are static and shared. */
-	BUG_ON(pgd_index(VMALLOC_END) != pgd_index(VMALLOC_START));
+	BUILD_BUG_ON(pgd_index(VMALLOC_END - PAGE_SIZE) !=
+		     pgd_index(VMALLOC_START));
 #else
 	/*
 	 * Note that races in the updates of insync and start aren't

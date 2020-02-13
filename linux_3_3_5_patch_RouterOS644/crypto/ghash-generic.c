@@ -151,6 +151,7 @@ static struct shash_alg ghash_alg = {
 		.cra_priority		= 100,
 		.cra_flags		= CRYPTO_ALG_TYPE_SHASH,
 		.cra_blocksize		= GHASH_BLOCK_SIZE,
+		.cra_alignmask		= __alignof__(u32) - 1,
 		.cra_ctxsize		= sizeof(struct ghash_ctx),
 		.cra_module		= THIS_MODULE,
 		.cra_list		= LIST_HEAD_INIT(ghash_alg.base.cra_list),

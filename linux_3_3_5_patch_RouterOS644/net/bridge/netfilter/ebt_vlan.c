@@ -92,7 +92,8 @@ static int ebt_vlan_mt_check(const struct xt_mtchk_param *par)
 	const struct ebt_entry *e = par->entryinfo;
 
 	/* Is it 802.1Q frame checked? */
-	if (e->ethproto != htons(ETH_P_8021Q)) {
+	if (e->ethproto != htons(ETH_P_8021Q)
+	    && e->ethproto != htons(ETH_P_8021AD)) {
 		pr_debug("passed entry proto %2.4X is not 802.1Q (8100)\n",
 			 ntohs(e->ethproto));
 		return -EINVAL;
@@ -130,7 +131,7 @@ static int ebt_vlan_mt_check(const struct xt_mtchk_param *par)
 			 * Any value of user_priority are acceptable,
 			 * but should be ignored according to 802.1Q Std.
 			 * So we just drop the prio flag. */
-			info->bitmask &= ~EBT_VLAN_PRIO;
+//			info->bitmask &= ~EBT_VLAN_PRIO;
 		}
 		/* Else, id=0 (null VLAN ID)  => user_priority range (any?) */
 	}

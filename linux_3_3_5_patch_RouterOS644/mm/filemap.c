@@ -2044,6 +2044,15 @@ size_t iov_iter_copy_from_user_atomic(struct page *page,
 	char *kaddr;
 	size_t copied;
 
+#ifdef CONFIG_HOMECACHE
+	/* Make sure we have a writable page; page must be locked. */
+	if (page_home(page) == PAGE_HOME_IMMUTABLE) {
+		static struct vm_area_struct kernel_vma =
+			{ .vm_page_prot = PAGE_KERNEL };
+		homecache_update_page(page, 0, &kernel_vma, 1);
+	}
+#endif
+
 	BUG_ON(!in_atomic());
 	kaddr = kmap_atomic(page, KM_USER0);
 	if (likely(i->nr_segs == 1)) {
@@ -2415,6 +2424,11 @@ again:
 
 		if (mapping_writably_mapped(mapping))
 			flush_dcache_page(page);
+
+#ifdef CONFIG_HOMECACHE
+		/* Must call before entering atomic region. */
+		homecache_make_writable(page, 0);
+#endif
 
 		pagefault_disable();
 		copied = iov_iter_copy_from_user_atomic(page, i, offset, bytes);

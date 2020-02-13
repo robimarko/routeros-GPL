@@ -100,9 +100,14 @@ extern void cpu_idle_on_new_stack(struct thread_info *old_ti,
 
 #else /* __ASSEMBLY__ */
 
-/* how to get the thread information struct from ASM */
+/*
+ * How to get the thread information struct from assembly.
+ * Note that we use different macros since different architectures
+ * have different semantics in their "mm" instruction and we would
+ * like to guarantee that the macro expands to exactly one instruction.
+ */
 #ifdef __tilegx__
-#define GET_THREAD_INFO(reg) move reg, sp; mm reg, zero, LOG2_THREAD_SIZE, 63
+#define EXTRACT_THREAD_INFO(reg) mm reg, zero, LOG2_THREAD_SIZE, 63
 #else
 #define GET_THREAD_INFO(reg) mm reg, sp, zero, LOG2_THREAD_SIZE, 31
 #endif
@@ -154,6 +159,13 @@ extern void cpu_idle_on_new_stack(struct thread_info *old_ti,
 #endif
 #define TS_POLLING		0x0004	/* in idle loop but not sleeping */
 #define TS_RESTORE_SIGMASK	0x0008	/* restore signal mask in do_signal */
+#ifdef CONFIG_HOMECACHE
+#define TS_EXEC_HASH_TEXT	0x0010	/* hash r/o segments */
+#define TS_EXEC_HASH_DATA	0x0020	/* hash r/w segments */
+#define TS_EXEC_HASH_HEAP	0x0040	/* hash heap memory */
+#define TS_EXEC_HASH_STACK	0x0080	/* hash stacks */
+#define TS_EXEC_HASH_FLAGS	0x00f0	/* mask for TS_EXEC_HASH_xxx flags */
+#endif
 
 #define tsk_is_polling(t) (task_thread_info(t)->status & TS_POLLING)
 

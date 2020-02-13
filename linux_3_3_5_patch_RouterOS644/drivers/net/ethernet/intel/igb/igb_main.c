@@ -1946,9 +1946,9 @@ static int __devinit igb_probe(struct pci_dev *pdev,
 			    NETIF_F_TSO |
 			    NETIF_F_TSO6 |
 			    NETIF_F_RXHASH |
-			    NETIF_F_RXCSUM |
-			    NETIF_F_HW_VLAN_RX |
-			    NETIF_F_HW_VLAN_TX;
+			    NETIF_F_RXCSUM;
+//			    NETIF_F_HW_VLAN_RX |
+//			    NETIF_F_HW_VLAN_TX;
 
 	/* copy netdev features into list of user selectable features */
 	netdev->hw_features |= netdev->features;
@@ -3790,7 +3790,7 @@ static void igb_watchdog_task(struct work_struct *work)
 	/* Reset the timer */
 	if (!test_bit(__IGB_DOWN, &adapter->state))
 		mod_timer(&adapter->watchdog_timer,
-			  round_jiffies(jiffies + 2 * HZ));
+			  round_jiffies(jiffies + HZ));
 }
 
 enum latency_range {

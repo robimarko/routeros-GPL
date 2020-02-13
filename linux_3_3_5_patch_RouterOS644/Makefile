@@ -117,7 +117,7 @@ ifneq ($(KBUILD_OUTPUT),)
 # Invoke a second make in the output directory, passing relevant variables
 # check that the output directory actually exists
 saved-output := $(KBUILD_OUTPUT)
-KBUILD_OUTPUT := $(shell cd $(KBUILD_OUTPUT) && /bin/pwd)
+KBUILD_OUTPUT := $(shell cd $(KBUILD_OUTPUT) && pwd)
 $(if $(KBUILD_OUTPUT),, \
      $(error output directory "$(saved-output)" does not exist))
 
@@ -329,9 +329,9 @@ include $(srctree)/scripts/Kbuild.include
 # Make variables (CC, etc...)
 
 AS		= $(CROSS_COMPILE)as
-LD		= $(CROSS_COMPILE)ld
 CC		= $(CROSS_COMPILE)gcc
 CPP		= $(CC) -E
+LD		= $(shell $(CC) --print-prog-name=ld)
 AR		= $(CROSS_COMPILE)ar
 NM		= $(CROSS_COMPILE)nm
 STRIP		= $(CROSS_COMPILE)strip
@@ -488,6 +488,10 @@ config: scripts_basic outputmakefile FORCE
 	$(Q)mkdir -p include/linux include/config
 	$(Q)$(MAKE) $(build)=scripts/kconfig $@
 
+silentoldconfig: scripts_basic outputmakefile FORCE
+	$(Q)mkdir -p include/linux include/config
+	$(Q)yes "" | $(MAKE) $(build)=scripts/kconfig $@
+
 %config: scripts_basic outputmakefile FORCE
 	$(Q)mkdir -p include/linux include/config
 	$(Q)$(MAKE) $(build)=scripts/kconfig $@
@@ -592,10 +596,11 @@ KBUILD_CFLAGS	+= -fomit-frame-pointer
 endif
 endif
 
-ifdef CONFIG_DEBUG_INFO
+#ifdef CONFIG_DEBUG_INFO
 KBUILD_CFLAGS	+= -g
 KBUILD_AFLAGS	+= -gdwarf-2
-endif
+LDFLAGS_vmlinux += -g
+#endif
 
 ifdef CONFIG_DEBUG_INFO_REDUCED
 KBUILD_CFLAGS 	+= $(call cc-option, -femit-struct-debug-baseonly)
@@ -794,10 +799,12 @@ define rule_vmlinux__
 	$(if $(CONFIG_KALLSYMS),,+$(call cmd,vmlinux_version))
 
 	$(call cmd,vmlinux__)
+	@rm -f $(@D)/.$(@F).cmd
 	$(Q)echo 'cmd_$@ := $(cmd_vmlinux__)' > $(@D)/.$(@F).cmd
 
 	$(Q)$(if $($(quiet)cmd_sysmap),                                      \
 	  echo '  $($(quiet)cmd_sysmap)  System.map' &&)                     \
+	rm -f System.map;						     \
 	$(cmd_sysmap) $@ System.map;                                         \
 	if [ $$? -ne 0 ]; then                                               \
 		rm -f $@;                                                    \
@@ -838,6 +845,7 @@ kallsyms.o := .tmp_kallsyms$(last_kallsyms).o
 define verify_kallsyms
 	$(Q)$(if $($(quiet)cmd_sysmap),                                      \
 	  echo '  $($(quiet)cmd_sysmap)  .tmp_System.map' &&)                \
+	  rm -f .tmp_System.map;					     \
 	  $(cmd_sysmap) .tmp_vmlinux$(last_kallsyms) .tmp_System.map
 	$(Q)cmp -s System.map .tmp_System.map ||                             \
 		(echo Inconsistent kallsyms data;                            \
@@ -854,12 +862,13 @@ define rule_ksym_ld
 	: 
 	+$(call cmd,vmlinux_version)
 	$(call cmd,vmlinux__)
+	@rm -f $(@D)/.$(@F).cmd
 	$(Q)echo 'cmd_$@ := $(cmd_vmlinux__)' > $(@D)/.$(@F).cmd
 endef
 
 # Generate .S file with all kernel symbols
 quiet_cmd_kallsyms = KSYM    $@
-      cmd_kallsyms = $(NM) -n $< | $(KALLSYMS) \
+      cmd_kallsyms = rm -f $@; $(NM) -n $< | $(KALLSYMS) \
                      $(if $(CONFIG_KALLSYMS_ALL),--all-symbols) > $@
 
 .tmp_kallsyms1.o .tmp_kallsyms2.o .tmp_kallsyms3.o: %.o: %.S scripts FORCE
@@ -903,6 +912,7 @@ define rule_vmlinux-modpost
 	:
 	+$(call cmd,vmlinux-modpost)
 	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.modpost $@
+	@rm -f $(dot-target).cmd
 	$(Q)echo 'cmd_$@ := $(cmd_vmlinux-modpost)' > $(dot-target).cmd
 endef
 
@@ -1090,6 +1100,7 @@ all: modules
 
 PHONY += modules
 modules: $(vmlinux-dirs) $(if $(KBUILD_BUILTIN),vmlinux) modules.builtin
+	@rm -f $(objtree)/modules.order
 	$(Q)$(AWK) '!x[$$0]++' $(vmlinux-dirs:%=$(objtree)/%/modules.order) > $(objtree)/modules.order
 	@$(kecho) '  Building modules, stage 2.';
 	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.modpost

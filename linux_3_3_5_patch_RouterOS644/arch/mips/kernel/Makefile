@@ -5,7 +5,7 @@
 extra-y		:= head.o init_task.o vmlinux.lds
 
 obj-y		+= cpu-probe.o branch.o entry.o genex.o irq.o process.o \
-		   ptrace.o reset.o setup.o signal.o syscall.o \
+		   ptrace.o reset.o setup.o signal.o syscall.o backtrace.o \
 		   time.o topology.o traps.o unaligned.o watch.o vdso.o
 
 ifdef CONFIG_FUNCTION_TRACER

@@ -4,6 +4,34 @@
 #include <linux/types.h>
 #include <linux/netlink.h>
 
+struct rtnl_link_compact_stats {
+	__u32 rx_packets;
+	__u32 tx_packets;
+	__u64 rx_bytes;
+	__u64 tx_bytes;
+	__u32 rx_drops;
+	__u32 tx_drops;
+	__u32 rx_errors;
+	__u32 tx_errors;
+	__u32 fp_rx_packets;
+	__u32 fp_tx_packets;
+	__u64 fp_rx_bytes;
+	__u64 fp_tx_bytes;
+	__u32 tx_queue_drops;
+};
+
+struct rtnl_link_compact {
+	unsigned index;
+	unsigned flags;
+	unsigned change;
+	unsigned char addr[8];
+	char name[16];
+	unsigned mtu;
+	unsigned l2mtu;
+	unsigned priv_flags;
+	struct rtnl_link_compact_stats stats;
+};
+
 /* This struct should be in sync with struct rtnl_link_stats64 */
 struct rtnl_link_stats {
 	__u32	rx_packets;		/* total packets received	*/
@@ -68,7 +96,7 @@ struct rtnl_link_stats64 {
 	/* for cslip etc */
 	__u64	rx_compressed;
 	__u64	tx_compressed;
-};
+} __attribute__((packed));
 
 /* The struct should be in sync with struct ifmap */
 struct rtnl_link_ifmap {
@@ -128,6 +156,7 @@ enum {
 	IFLA_LINKINFO,
 #define IFLA_LINKINFO IFLA_LINKINFO
 	IFLA_NET_NS_PID,
+	IFLA_L2MTU,
 	IFLA_IFALIAS,
 	IFLA_NUM_VF,		/* Number of VFs if device is SR-IOV PF */
 	IFLA_VFINFO_LIST,
@@ -138,6 +167,7 @@ enum {
 	IFLA_GROUP,		/* Group the device belongs to */
 	IFLA_NET_NS_FD,
 	IFLA_EXT_MASK,		/* Extended info mask, VFs, etc */
+	IFLA_PRIV_FLAGS,
 	__IFLA_MAX
 };
 
@@ -226,6 +256,7 @@ enum {
 	IFLA_VLAN_FLAGS,
 	IFLA_VLAN_EGRESS_QOS,
 	IFLA_VLAN_INGRESS_QOS,
+	IFLA_VLAN_PROTO,
 	__IFLA_VLAN_MAX,
 };
 

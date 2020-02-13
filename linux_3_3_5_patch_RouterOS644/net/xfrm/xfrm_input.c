@@ -67,7 +67,7 @@ int xfrm_parse_spi(struct sk_buff *skb, u8 nexthdr, __be32 *spi, __be32 *seq)
 	case IPPROTO_COMP:
 		if (!pskb_may_pull(skb, sizeof(struct ip_comp_hdr)))
 			return -EINVAL;
-		*spi = htonl(ntohs(*(__be16*)(skb_transport_header(skb) + 2)));
+		*spi = htonl(ntohs(get_unaligned((__be16*)(skb_transport_header(skb) + 2))));
 		*seq = 0;
 		return 0;
 	default:
@@ -77,8 +77,8 @@ int xfrm_parse_spi(struct sk_buff *skb, u8 nexthdr, __be32 *spi, __be32 *seq)
 	if (!pskb_may_pull(skb, hlen))
 		return -EINVAL;
 
-	*spi = *(__be32*)(skb_transport_header(skb) + offset);
-	*seq = *(__be32*)(skb_transport_header(skb) + offset_seq);
+	*spi = get_unaligned((__be32*)(skb_transport_header(skb) + offset));
+	*seq = get_unaligned((__be32*)(skb_transport_header(skb) + offset_seq));
 	return 0;
 }
 
@@ -212,7 +212,8 @@ resume:
 		/* only the first xfrm gets the encap type */
 		encap_type = 0;
 
-		if (async && x->repl->check(x, skb, seq)) {
+                // MT drivers may reorder packets, always do this check
+		if (x->repl->check(x, skb, seq)) {
 			XFRM_INC_STATS(net, LINUX_MIB_XFRMINSTATESEQERROR);
 			goto drop_unlock;
 		}
@@ -259,6 +260,7 @@ resume:
 	} while (!err);
 
 	nf_reset(skb);
+	skb_reset_mark(skb);
 
 	if (decaps) {
 		skb_dst_drop(skb);

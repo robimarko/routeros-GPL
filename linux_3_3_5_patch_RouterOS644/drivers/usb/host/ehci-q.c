@@ -42,6 +42,10 @@
 
 /* fill a qtd, returning how much of the buffer we were able to queue up */
 
+#ifdef CONFIG_MIPS_MIKROTIK
+#include <asm/rb/boards.h>
+#endif
+
 static int
 qtd_fill(struct ehci_hcd *ehci, struct ehci_qtd *qtd, dma_addr_t buf,
 		  size_t len, int token, int maxpacket)

@@ -57,7 +57,7 @@ struct pptp_pkt_hdr {
 	__u16	packetLength;
 	__be16	packetType;
 	__be32	magicCookie;
-};
+} __attribute__((packed));
 
 /* PptpControlMessageType values */
 #define PPTP_START_SESSION_REQUEST	1
@@ -90,7 +90,7 @@ struct pptp_pkt_hdr {
 struct PptpControlHeader {
 	__be16	messageType;
 	__u16	reserved;
-};
+} __attribute__((packed));
 
 /* FramingCapability Bitmap Values */
 #define PPTP_FRAME_CAP_ASYNC		0x1

@@ -110,7 +110,7 @@ int ip_forward(struct sk_buff *skb)
 	if (rt->rt_flags&RTCF_DOREDIRECT && !opt->srr && !skb_sec_path(skb))
 		ip_rt_send_redirect(skb);
 
-	skb->priority = rt_tos2priority(iph->tos);
+	/* skb->priority = rt_tos2priority(iph->tos); */
 
 	return NF_HOOK(NFPROTO_IPV4, NF_INET_FORWARD, skb, skb->dev,
 		       rt->dst.dev, ip_forward_finish);

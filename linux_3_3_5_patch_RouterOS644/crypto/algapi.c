@@ -10,6 +10,7 @@
  *
  */
 
+#include <asm/unaligned.h>
 #include <linux/err.h>
 #include <linux/errno.h>
 #include <linux/init.h>
@@ -929,8 +930,11 @@ void crypto_xor(u8 *dst, const u8 *src, unsigned int size)
 	u32 *a = (u32 *)dst;
 	u32 *b = (u32 *)src;
 
-	for (; size >= 4; size -= 4)
-		*a++ ^= *b++;
+	for (; size >= 4; size -= 4) {
+		put_unaligned(get_unaligned(a) ^ get_unaligned(b), a);
+		++a;
+		++b;
+	}
 
 	crypto_xor_byte((u8 *)a, (u8 *)b, size);
 }

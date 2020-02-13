@@ -359,6 +359,7 @@ static void icmp_reply(struct icmp_bxm *icmp_param, struct sk_buff *skb)
 	fl4.saddr = rt->rt_spec_dst;
 	fl4.flowi4_tos = RT_TOS(ip_hdr(skb)->tos);
 	fl4.flowi4_proto = IPPROTO_ICMP;
+	fl4.flowi4_mark = skb->prmark;
 	security_skb_classify_flow(skb, flowi4_to_flowi(&fl4));
 	rt = ip_route_output_key(net, &fl4);
 	if (IS_ERR(rt))
@@ -963,7 +964,7 @@ int icmp_rcv(struct sk_buff *skb)
 {
 	struct icmphdr *icmph;
 	struct rtable *rt = skb_rtable(skb);
-	struct net *net = dev_net(rt->dst.dev);
+	struct net *net = NULL;
 
 	if (!xfrm4_policy_check(NULL, XFRM_POLICY_IN, skb)) {
 		struct sec_path *sp = skb_sec_path(skb);
@@ -984,6 +985,8 @@ int icmp_rcv(struct sk_buff *skb)
 
 		skb_set_network_header(skb, nh);
 	}
+
+	net = dev_net(rt->dst.dev);
 
 	ICMP_INC_STATS_BH(net, ICMP_MIB_INMSGS);
 

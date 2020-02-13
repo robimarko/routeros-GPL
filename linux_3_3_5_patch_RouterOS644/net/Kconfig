@@ -218,7 +218,7 @@ source "net/batman-adv/Kconfig"
 source "net/openvswitch/Kconfig"
 
 config RPS
-	boolean
+	boolean "RPS"
 	depends on SMP && SYSFS && USE_GENERIC_SMP_HELPERS
 	default y
 
@@ -230,7 +230,7 @@ config RFS_ACCEL
 
 config XPS
 	boolean
-	depends on SMP && SYSFS && USE_GENERIC_SMP_HELPERS
+	depends on SMP && SYSFS && USE_GENERIC_SMP_HELPERS && RPS
 	default y
 
 config NETPRIO_CGROUP
@@ -317,6 +317,14 @@ source "net/rxrpc/Kconfig"
 
 config FIB_RULES
 	bool
+
+config TILE_NETLIB
+	boolean "Userspace tables sync for NETLIB"
+	depends on INET && TILE
+	default n
+	---help---
+	This module provides Neighbor&Routing sync service to userspace in
+	events that add/delete neighbour/routing table entry.
 
 menuconfig WIRELESS
 	bool "Wireless"

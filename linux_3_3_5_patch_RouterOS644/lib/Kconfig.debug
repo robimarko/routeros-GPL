@@ -671,7 +671,7 @@ config DEBUG_LOCKING_API_SELFTESTS
 	  mutexes and rwsems.
 
 config STACKTRACE
-	bool
+	bool "Stacktrace"
 	depends on STACKTRACE_SUPPORT
 
 config DEBUG_STACK_USAGE

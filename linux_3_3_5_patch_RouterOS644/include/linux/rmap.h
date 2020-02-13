@@ -166,6 +166,11 @@ enum ttu_flags {
 	TTU_UNMAP = 0,			/* unmap mode */
 	TTU_MIGRATION = 1,		/* migration mode */
 	TTU_MUNLOCK = 2,		/* munlock mode */
+#ifdef CONFIG_HOMECACHE
+	TTU_HOMECACHE_START = 3,	/* mark PTEs as homecache-migrating */
+	TTU_HOMECACHE_FINISH = 4,	/* restore PTEs with new values */
+#endif
+
 	TTU_ACTION_MASK = 0xff,
 
 	TTU_IGNORE_MLOCK = (1 << 8),	/* ignore mlock */

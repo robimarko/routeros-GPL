@@ -757,8 +757,10 @@ static inline int rt_is_expired(struct rtable *rth)
  * Can be called by a softirq or a process.
  * In the later case, we want to be reschedule if necessary
  */
-static void rt_do_flush(struct net *net, int process_context)
+static void rt_flush_func(struct work_struct *work)
 {
+	struct net *net = &init_net;
+	int process_context = !in_softirq();
 	unsigned int i;
 	struct rtable *rth, *next;
 
@@ -801,6 +803,11 @@ static void rt_do_flush(struct net *net, int process_context)
 			rt_free(list);
 		}
 	}
+}
+static struct delayed_work rt_flush_work;
+static void rt_do_flush(struct net *net, int process_context) {
+	schedule_delayed_work(&rt_flush_work, HZ);
+	return;
 }
 
 /*
@@ -949,6 +956,7 @@ void rt_cache_flush(struct net *net, int delay)
 	if (delay >= 0)
 		rt_do_flush(net, !in_softirq());
 }
+EXPORT_SYMBOL(rt_cache_flush);
 
 /* Flush previous cache invalidated entries from the cache */
 void rt_cache_flush_batch(struct net *net)
@@ -1052,6 +1060,9 @@ static int rt_garbage_collect(struct dst_ops *ops)
 			spin_unlock_bh(rt_hash_lock_addr(k));
 			if (goal <= 0)
 				break;
+			if (time_after(jiffies, now)) {
+				break;
+			}
 		}
 		rover = k;
 
@@ -1169,6 +1180,8 @@ restart:
 		 * Note: To avoid expensive rcu stuff for this uncached dst,
 		 * we set DST_NOCACHE so that dst_release() can free dst without
 		 * waiting a grace period.
+                 *
+                 * Also this allows real parents like xfrm_dst to free it.
 		 */
 
 		rt->dst.flags |= DST_NOCACHE;
@@ -1293,8 +1306,13 @@ restart:
 				goto restart;
 			}
 
-			if (net_ratelimit())
+			if (net_ratelimit()) {
+				static unsigned warning_topics[] = { 2 /*TOPIC_WARNING*/, 0 };
+				void kernel_log_message(unsigned *topics, const char *format, ...);
+				kernel_log_message(warning_topics,
+						   "ipv4 neighbor table overflow, please consider increasing max-neighbor-entries");
 				printk(KERN_WARNING "ipv4: Neighbour table overflow.\n");
+			}
 			rt_drop(rt);
 			return ERR_PTR(-ENOBUFS);
 		}
@@ -1897,6 +1915,9 @@ static void set_class_tag(struct rtable *rt, u32 tag)
 }
 #endif
 
+int (*mpls_rt_hook)(__u32, struct dst_entry *) = NULL;
+EXPORT_SYMBOL(mpls_rt_hook);
+
 static unsigned int ipv4_default_advmss(const struct dst_entry *dst)
 {
 	unsigned int advmss = dst_metric_raw(dst, RTAX_ADVMSS);
@@ -1913,7 +1934,11 @@ static unsigned int ipv4_default_advmss(const struct dst_entry *dst)
 static unsigned int ipv4_mtu(const struct dst_entry *dst)
 {
 	const struct rtable *rt = (const struct rtable *) dst;
-	unsigned int mtu = dst_metric_raw(dst, RTAX_MTU);
+	unsigned int mtu;
+
+	if (dst->child) return dst_mtu(dst->child);
+
+	mtu = dst_metric_raw(dst, RTAX_MTU);
 
 	if (mtu && rt_is_output_route(rt))
 		return mtu;
@@ -1979,6 +2004,10 @@ static void rt_set_nexthop(struct rtable *rt, const struct flowi4 *fl4,
 		    FIB_RES_NH(*res).nh_scope == RT_SCOPE_LINK)
 			rt->rt_gateway = FIB_RES_GW(*res);
 		rt_init_metrics(rt, fl4, fi);
+		if (FIB_RES_NH(*res).nh_mplskey && mpls_rt_hook) {
+			(*mpls_rt_hook)(FIB_RES_NH(*res).nh_mplskey,
+					&rt->dst);
+		}
 #ifdef CONFIG_IP_ROUTE_CLASSID
 		dst->tclassid = FIB_RES_NH(*res).nh_tclassid;
 #endif
@@ -2057,7 +2086,7 @@ static int ip_route_input_mc(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 	rth->rt_route_iif = dev->ifindex;
 	rth->rt_iif	= dev->ifindex;
 	rth->rt_oif	= 0;
-	rth->rt_mark    = skb->mark;
+	rth->rt_mark    = skb->prmark;
 	rth->rt_gateway	= daddr;
 	rth->rt_spec_dst= spec_dst;
 	rth->rt_peer_genid = 0;
@@ -2192,7 +2221,7 @@ static int __mkroute_input(struct sk_buff *skb,
 	rth->rt_route_iif = in_dev->dev->ifindex;
 	rth->rt_iif 	= in_dev->dev->ifindex;
 	rth->rt_oif 	= 0;
-	rth->rt_mark    = skb->mark;
+	rth->rt_mark    = skb->prmark;
 	rth->rt_gateway	= daddr;
 	rth->rt_spec_dst= spec_dst;
 	rth->rt_peer_genid = 0;
@@ -2294,7 +2323,7 @@ static int ip_route_input_slow(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 	 */
 	fl4.flowi4_oif = 0;
 	fl4.flowi4_iif = dev->ifindex;
-	fl4.flowi4_mark = skb->mark;
+	fl4.flowi4_mark = skb->prmark;
 	fl4.flowi4_tos = tos;
 	fl4.flowi4_scope = RT_SCOPE_UNIVERSE;
 	fl4.daddr = daddr;
@@ -2375,7 +2404,7 @@ local_input:
 	rth->rt_route_iif = dev->ifindex;
 	rth->rt_iif	= dev->ifindex;
 	rth->rt_oif	= 0;
-	rth->rt_mark    = skb->mark;
+	rth->rt_mark    = skb->prmark;
 	rth->rt_gateway	= daddr;
 	rth->rt_spec_dst= spec_dst;
 	rth->rt_peer_genid = 0;
@@ -2431,6 +2460,10 @@ martian_source_keep_err:
 	goto out;
 }
 
+/* needed for ipv4 fast path */
+EXPORT_SYMBOL(ip_forward);
+EXPORT_SYMBOL(ip_local_deliver);
+
 int ip_route_input_common(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 			   u8 tos, struct net_device *dev, bool noref)
 {
@@ -2456,7 +2489,7 @@ int ip_route_input_common(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 		     ((__force u32)rth->rt_key_src ^ (__force u32)saddr) |
 		     (rth->rt_route_iif ^ iif) |
 		     (rth->rt_key_tos ^ tos)) == 0 &&
-		    rth->rt_mark == skb->mark &&
+		    rth->rt_mark == skb->prmark &&
 		    net_eq(dev_net(rth->dst.dev), net) &&
 		    !rt_is_expired(rth)) {
 			ipv4_validate_peer(rth);
@@ -3483,6 +3516,8 @@ int __init ip_rt_init(void)
 	expires_ljiffies = jiffies;
 	schedule_delayed_work(&expires_work,
 		net_random() % ip_rt_gc_interval + ip_rt_gc_interval);
+
+	INIT_DELAYED_WORK(&rt_flush_work, rt_flush_func);
 
 	if (ip_rt_proc_init())
 		printk(KERN_ERR "Unable to create route proc files\n");

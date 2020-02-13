@@ -58,6 +58,48 @@ config MPC85xx_DS
 	help
 	  This option enables support for the MPC85xx DS (MPC8544 DS) board
 
+config RB1000
+	bool "Mikrotik RB1000"
+	select MT_VIC
+	select RB_AUX
+	select RB_IOMAP
+	help
+	  This option enables support for the Mikrotik RB1000 board
+
+
+config RB800
+	bool "Mikrotik RB800"
+	select MT_VIC
+	select RB_AUX
+	select RB_PCI
+	select RB_IOMAP
+	help
+	  This option enables support for the Mikrotik RB800 board
+
+config RB1100
+	bool "Mikrotik RB1100"
+	select MT_VIC
+	select RB_AUX
+	select RB_PCI
+	select RB_IOMAP
+	help
+	  This option enables support for the Mikrotik RB1100 board
+
+config RB1120
+	bool "Mikrotik RB1120"
+	select MT_VIC
+	select RB_AUX
+	select RB_PCI
+	select RB_IOMAP
+	help
+	  This option enables support for the Mikrotik RB1100AHx2 board
+	
+config METAROUTER
+	bool "Mikrotik MetaROUTER"
+	select MT_VIC
+	help
+	  This option enables support for the Mikrotik MetaROUTER
+
 config MPC85xx_RDB
 	bool "Freescale MPC85xx RDB"
 	select PPC_I8259

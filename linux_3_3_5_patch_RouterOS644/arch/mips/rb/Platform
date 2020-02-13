@@ -1,0 +1,21 @@
+#
+# Mikrotik RB100/RB500 boards
+#
+platform-$(CONFIG_MIPS_MIKROTIK) += rb/
+platform-$(CONFIG_MIPS_MIKROTIK) += rb/rb500/
+platform-$(CONFIG_MIPS_MIKROTIK) += rb/rb100/
+platform-$(CONFIG_MIPS_MIKROTIK) += rb/rb400/
+platform-$(CONFIG_RALINK_MT7621) += rb/ralink/
+platform-$(CONFIG_MIPS_MIKROTIK) += rb/cr/
+platform-$(CONFIG_MIPS_MIKROTIK) += rb/vm/
+cflags-$(CONFIG_RALINK_MT7621) += -I$(srctree)/arch/mips/include/asm/mach-ralink
+ifndef CONFIG_RALINK_MT7621
+cflags-$(CONFIG_MIPS_MIKROTIK) += -I$(srctree)/arch/mips/include/asm/mach-rb
+endif
+ifdef CONFIG_MAPPED_KERNEL
+load-$(CONFIG_MIPS_MIKROTIK) += 0xffffffffc0081000
+OBJCOPYFLAGS += --change-addresses=0xc0000000
+else
+load-$(CONFIG_MIPS_MIKROTIK) += 0xffffffff80101000
+endif
+

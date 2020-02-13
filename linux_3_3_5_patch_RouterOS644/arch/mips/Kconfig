@@ -689,6 +689,25 @@ config MIKROTIK_RB532
 	  Support the Mikrotik(tm) RouterBoard 532 series,
 	  based on the IDT RC32434 SoC.
 
+config MIPS_MIKROTIK
+	bool "Support for Mikrotik RB boards"
+	select SYS_HAS_EARLY_PRINTK
+	select CEVT_R4K
+	select CSRC_R4K
+	select DMA_NONCOHERENT
+	select HW_HAS_PCI
+	select IRQ_CPU
+	select SYS_HAS_CPU_MIPS32_R1
+	select SYS_HAS_CPU_MIPS32_R2
+	select SYS_SUPPORTS_LITTLE_ENDIAN
+	select SYS_SUPPORTS_BIG_ENDIAN
+	select SYS_SUPPORTS_32BIT_KERNEL
+	select ZONE_DMA
+	select ARCH_REQUIRE_GPIOLIB
+	select MFD_CORE
+	help
+	  Say Y here to support all Mikrotik mips based routerboards
+
 config WR_PPMC
 	bool "Wind River PPMC board"
 	select CEVT_R4K
@@ -813,6 +832,14 @@ config NLM_XLP_BOARD
 
 endchoice
 
+config SOFT_PCI_IO
+	bool "PCI IO software emulation on RB4xx"
+	depends on MIPS_MIKROTIK
+
+config MAPPED_KERNEL
+	bool "Mapped kernel support"
+	depends on MIPS_MIKROTIK
+
 source "arch/mips/alchemy/Kconfig"
 source "arch/mips/ath79/Kconfig"
 source "arch/mips/bcm47xx/Kconfig"
@@ -830,8 +857,38 @@ source "arch/mips/vr41xx/Kconfig"
 source "arch/mips/cavium-octeon/Kconfig"
 source "arch/mips/loongson/Kconfig"
 source "arch/mips/netlogic/Kconfig"
+source "arch/mips/rb/ralink/Kconfig"
 
 endmenu
+
+config RALINK_MT7621
+	bool "Ralink MT7621 board"
+	select MMIPS_MIKROTIK
+	select CEVT_R4K
+	select CSRC_R4K
+	select DMA_NONCOHERENT
+	select IRQ_CPU
+	select SYS_HAS_CPU_MIPS32_R1
+	select SYS_HAS_CPU_MIPS32_R2
+	select SYS_SUPPORTS_32BIT_KERNEL
+	select SYS_SUPPORTS_LITTLE_ENDIAN
+	select HW_HAS_PCI
+	select SWAP_IO_SPACE
+	select CPU_SUPPORTS_HIGHMEM
+	select SYS_SUPPORTS_HIGHMEM
+	select MIPS_CPU_SCACHE
+	select SYS_SUPPORTS_MULTITHREADING
+	select SYS_SUPPORTS_SMP
+	select SYS_SUPPORTS_MIPS_CMP
+	select SYS_SUPPORTS_MIPS_CPS
+	select IRQ_GIC
+	help
+	  Ralink evaluation board based on MT7621
+
+config MMIPS_MIKROTIK
+	bool
+	depends on RALINK_MT7621
+	default y
 
 config RWSEM_GENERIC_SPINLOCK
 	bool
@@ -1162,6 +1219,7 @@ config MIPS_L1_CACHE_SHIFT
 	default "4" if MACH_DECSTATION || MIKROTIK_RB532 || PMC_MSP4200_EVAL
 	default "6" if MIPS_CPU_SCACHE
 	default "7" if SGI_IP22 || SGI_IP27 || SGI_IP28 || SNI_RM || CPU_CAVIUM_OCTEON
+	default "4" if MIPS_MIKROTIK
 	default "5"
 
 config HAVE_STD_PC_SERIAL_PORT
@@ -1221,7 +1279,7 @@ config CPU_LOONGSON2F
 config CPU_MIPS32_R1
 	bool "MIPS32 Release 1"
 	depends on SYS_HAS_CPU_MIPS32_R1
-	select CPU_HAS_PREFETCH
+#	select CPU_HAS_PREFETCH
 	select CPU_SUPPORTS_32BIT_KERNEL
 	select CPU_SUPPORTS_HIGHMEM
 	help
@@ -1238,7 +1296,7 @@ config CPU_MIPS32_R1
 config CPU_MIPS32_R2
 	bool "MIPS32 Release 2"
 	depends on SYS_HAS_CPU_MIPS32_R2
-	select CPU_HAS_PREFETCH
+	select CPU_HAS_PREFETCH if !MIPS_MIKROTIK
 	select CPU_SUPPORTS_32BIT_KERNEL
 	select CPU_SUPPORTS_HIGHMEM
 	help
@@ -1853,8 +1911,8 @@ config MIPS_MT_DISABLED
 config MIPS_MT_SMP
 	bool "Use 1 TC on each available VPE for SMP"
 	depends on SYS_SUPPORTS_MULTITHREADING
-	select CPU_MIPSR2_IRQ_VI
-	select CPU_MIPSR2_IRQ_EI
+	select CPU_MIPSR2_IRQ_VI if !RALINK_MT7621
+	select CPU_MIPSR2_IRQ_EI if !RALINK_MT7621
 	select MIPS_MT
 	select NR_CPUS_DEFAULT_2
 	select SMP
@@ -2456,6 +2514,7 @@ config MIPS32_COMPAT
 config COMPAT
 	bool
 	depends on MIPS32_COMPAT
+	select ARCH_WANT_OLD_COMPAT_IPC
 	default y
 
 config SYSVIPC_COMPAT

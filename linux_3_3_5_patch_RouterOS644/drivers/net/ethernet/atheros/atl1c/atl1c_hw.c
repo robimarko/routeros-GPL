@@ -160,8 +160,14 @@ static int atl1c_get_permanent_address(struct atl1c_hw *hw)
 	/* maybe MAC-address is from BIOS */
 	AT_READ_REG(hw, REG_MAC_STA_ADDR, &addr[0]);
 	AT_READ_REG(hw, REG_MAC_STA_ADDR + 4, &addr[1]);
-	*(u32 *) &eth_addr[2] = swab32(addr[0]);
-	*(u16 *) &eth_addr[0] = swab16(*(u16 *)&addr[1]);
+
+	eth_addr[2] = addr[0] >> 24;
+	eth_addr[3] = addr[0] >> 16;
+	eth_addr[4] = addr[0] >> 8;
+	eth_addr[5] = addr[0];
+
+	eth_addr[0] = addr[1] >> 8;
+	eth_addr[1] = addr[1];
 
 	if (is_valid_ether_addr(eth_addr)) {
 		memcpy(hw->perm_mac_addr, eth_addr, ETH_ALEN);

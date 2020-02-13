@@ -61,6 +61,9 @@
 
 #include <asm/tlbflush.h>
 #include <asm/div64.h>
+#ifdef CONFIG_HOMECACHE
+#include <asm/homecache.h>
+#endif
 #include "internal.h"
 
 #ifdef CONFIG_USE_PERCPU_NUMA_NODE_ID
@@ -725,8 +728,24 @@ static void __free_pages_ok(struct page *page, unsigned int order)
 	if (unlikely(wasMlocked))
 		free_page_mlock(page);
 	__count_vm_events(PGFREE, 1 << order);
+
+#ifdef CONFIG_HOMECACHE
+	if (homecache_check_free_page(page, order)) {
+		/* Compound page check normally done in free_one_page(). */
+		if (unlikely(PageCompound(page)))
+			if (unlikely(destroy_compound_page(page, order)))
+				goto out;
+		homecache_keep_free_page(page, order);
+		goto out;
+	}
+#endif
+
 	free_one_page(page_zone(page), page, order,
 					get_pageblock_migratetype(page));
+
+#ifdef CONFIG_HOMECACHE
+out:
+#endif
 	local_irq_restore(flags);
 }
 
@@ -829,6 +848,19 @@ static int prep_new_page(struct page *page, int order, gfp_t gfp_flags)
 
 	arch_alloc_page(page, order);
 	kernel_map_pages(page, 1 << order, 1);
+
+#ifdef CONFIG_HOMECACHE
+	/*
+	 * Re-homecache the page(s) on this tile now.  This lets
+	 * us be more efficient in prep_zero_page() since the
+	 * data will be written through our local cache.
+	 * But in addition, it avoids violating the homecache
+	 * invariant that free pages are never dirty, which
+	 * we use to determine whether we can skip the remote
+	 * flush of the cache.
+	 */
+	homecache_new_kernel_page(page, order);
+#endif
 
 	if (gfp_flags & __GFP_ZERO)
 		prep_zero_page(page, order, gfp_flags);
@@ -1099,6 +1131,37 @@ static int rmqueue_bulk(struct zone *zone, unsigned int order,
 	return i;
 }
 
+#ifdef CONFIG_HOMECACHE
+/*
+ * Called recursively while allocating, to provide a higher-order
+ * page that we can then shatter and map with small TLB entries
+ * so we can tweak their homecache.  Called with the zone lock held.
+ */
+struct page *homecache_rmqueue(struct zone *zone, int order, int migratetype)
+{
+	int i;
+	struct page *page;
+
+	page = __rmqueue(zone, order, migratetype);
+	if (unlikely(page == NULL))
+		return NULL;
+
+	__mod_zone_page_state(zone, NR_FREE_PAGES, -(1UL << order));
+
+	/* Split into individual pages */
+	set_page_refcounted(page);
+	split_page(page, order);
+
+	/* The pages are going onto the homecache free list, so clear count. */
+	for (i = 0; i < (1 << order); i++) {
+		set_page_count(page + i, 0);
+		set_page_private(&page[i], migratetype);
+	}
+
+	return page;
+}
+#endif
+
 #ifdef CONFIG_NUMA
 /*
  * Called from the vmstat counter updater to drain pagesets of this
@@ -1241,6 +1304,14 @@ void free_hot_cold_page(struct page *page, int cold)
 		migratetype = MIGRATE_MOVABLE;
 	}
 
+#ifdef CONFIG_HOMECACHE
+	if (homecache_check_free_page(page, 0)) {
+		/* FIXME: return pages to buddy allocator here if needed. */
+		homecache_keep_free_page(page, 0);
+		goto out;
+	}
+#endif
+
 	pcp = &this_cpu_ptr(zone->pageset)->pcp;
 	if (cold)
 		list_add_tail(&page->lru, &pcp->lists[migratetype]);
@@ -1362,6 +1433,11 @@ again:
 		struct list_head *list;
 
 		local_irq_save(flags);
+#ifdef CONFIG_HOMECACHE
+		page = homecache_get_cached_page(zone, gfp_flags);
+		if (page)
+			goto got_pg;
+#endif
 		pcp = &this_cpu_ptr(zone->pageset)->pcp;
 		list = &pcp->lists[migratetype];
 		if (list_empty(list)) {
@@ -1400,6 +1476,10 @@ again:
 			goto failed;
 		__mod_zone_page_state(zone, NR_FREE_PAGES, -(1 << order));
 	}
+
+#ifdef CONFIG_HOMECACHE
+got_pg:
+#endif
 
 	__count_zone_vm_events(PGALLOC, zone, 1 << order);
 	zone_statistics(preferred_zone, zone, gfp_flags);
@@ -2195,6 +2275,14 @@ __alloc_pages_slowpath(gfp_t gfp_mask, unsigned int order,
 	bool deferred_compaction = false;
 
 	/*
+	 * Code in arch/mips/kernel/module.c wants physically
+	 * contiguous memory only if there is plenty of free of them.
+	 */
+	if ((gfp_mask & (__GFP_THISNODE | __GFP_NORETRY | __GFP_NOWARN))
+	    == (__GFP_THISNODE | __GFP_NORETRY | __GFP_NOWARN))
+		goto nopage;
+
+	/*
 	 * In the slowpath, we sanity check order to avoid ever trying to
 	 * reclaim >= MAX_ORDER areas which will never succeed. Callers may
 	 * be using allocators in order of preference for an area that is
@@ -2204,6 +2292,18 @@ __alloc_pages_slowpath(gfp_t gfp_mask, unsigned int order,
 		WARN_ON_ONCE(!(gfp_mask & __GFP_NOWARN));
 		return NULL;
 	}
+
+#ifdef CONFIG_HOMECACHE
+	/* Query the homecache code if it has pages it can release. */
+	if (homecache_recover_free_pages()) {
+		page = get_page_from_freelist(gfp_mask|__GFP_HARDWALL,
+				nodemask, order, zonelist, high_zoneidx,
+				ALLOC_WMARK_LOW|ALLOC_CPUSET,
+				preferred_zone, migratetype);
+		if (page)
+			goto got_pg;
+	}
+#endif
 
 	/*
 	 * GFP_THISNODE (meaning __GFP_THISNODE, __GFP_NORETRY and
@@ -2220,6 +2320,9 @@ restart:
 	if (!(gfp_mask & __GFP_NO_KSWAPD))
 		wake_all_kswapd(order, zonelist, high_zoneidx,
 						zone_idx(preferred_zone));
+
+	if (gfp_mask & 0x80000000)
+	    goto nopage;
 
 	/*
 	 * OK, we're below the kswapd watermark and have kicked background
@@ -4314,6 +4417,9 @@ static void __paginginit free_area_init_core(struct pglist_data *pgdat,
 		zone_pcp_init(zone);
 		for_each_lru(lru)
 			INIT_LIST_HEAD(&zone->lruvec.lists[lru]);
+#ifdef CONFIG_HOMECACHE
+		homecache_init_zone_lists(zone);
+#endif
 		zone->reclaim_stat.recent_rotated[0] = 0;
 		zone->reclaim_stat.recent_rotated[1] = 0;
 		zone->reclaim_stat.recent_scanned[0] = 0;
@@ -5067,7 +5173,7 @@ int __meminit init_per_zone_wmark_min(void)
 
 	lowmem_kbytes = nr_free_buffer_pages() * (PAGE_SIZE >> 10);
 
-	min_free_kbytes = int_sqrt(lowmem_kbytes * 16);
+	min_free_kbytes = int_sqrt(lowmem_kbytes * 32);
 	if (min_free_kbytes < 128)
 		min_free_kbytes = 128;
 	if (min_free_kbytes > 65536)

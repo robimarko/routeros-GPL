@@ -23,6 +23,7 @@ static const struct nla_policy vlan_policy[IFLA_VLAN_MAX + 1] = {
 	[IFLA_VLAN_FLAGS]	= { .len = sizeof(struct ifla_vlan_flags) },
 	[IFLA_VLAN_EGRESS_QOS]	= { .type = NLA_NESTED },
 	[IFLA_VLAN_INGRESS_QOS] = { .type = NLA_NESTED },
+	[IFLA_VLAN_PROTO]	= { .type = NLA_U16 },
 };
 
 static const struct nla_policy vlan_map_policy[IFLA_VLAN_QOS_MAX + 1] = {
@@ -119,10 +120,12 @@ static int vlan_newlink(struct net *src_net, struct net_device *dev,
 		return -ENODEV;
 
 	vlan->vlan_id  = nla_get_u16(data[IFLA_VLAN_ID]);
+	vlan->vlan_proto = data[IFLA_VLAN_PROTO]
+		? nla_get_u16(data[IFLA_VLAN_PROTO]) : ETH_P_8021Q;
 	vlan->real_dev = real_dev;
 	vlan->flags    = VLAN_FLAG_REORDER_HDR;
 
-	err = vlan_check_real_dev(real_dev, vlan->vlan_id);
+	err = vlan_check_real_dev(real_dev, vlan->vlan_id, vlan->vlan_proto);
 	if (err < 0)
 		return err;
 
@@ -130,6 +133,11 @@ static int vlan_newlink(struct net *src_net, struct net_device *dev,
 		dev->mtu = real_dev->mtu;
 	else if (dev->mtu > real_dev->mtu)
 		return -EINVAL;
+
+	dev->l2mtu = (real_dev->l2mtu > 4) ? (real_dev->l2mtu - 4) : 0;
+	if (dev->l2mtu && dev->mtu > dev->l2mtu) {
+	    dev->mtu = dev->l2mtu;
+	}
 
 	err = vlan_changelink(dev, tb, data);
 	if (err < 0)

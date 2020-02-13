@@ -50,7 +50,7 @@ struct gre_hdr {
 #error "Adjust your <asm/byteorder.h> defines"
 #endif
 	__be16	protocol;
-};
+} __attribute__((packed));
 
 /* modified GRE header for PPTP */
 struct gre_hdr_pptp {
@@ -62,7 +62,7 @@ struct gre_hdr_pptp {
 	__be32 seq;		/* sequence number.  Present if S==1 */
 	__be32 ack;		/* seq number of highest packet received by */
 				/*  sender in this session */
-};
+} __attribute__((packed));
 
 struct nf_ct_gre {
 	unsigned int stream_timeout;
@@ -78,6 +78,7 @@ struct nf_conn;
 struct nf_ct_gre_keymap {
 	struct list_head list;
 	struct nf_conntrack_tuple tuple;
+	struct nf_ct_gre_keymap **kmp;
 };
 
 /* add new tuple->key_reply pair to keymap */

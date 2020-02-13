@@ -2962,6 +2962,7 @@ static int dev_ifsioc(struct net *net, struct socket *sock,
 		case SIOCGIFNETMASK:
 		case SIOCGIFPFLAGS:
 		case SIOCGIFTXQLEN:
+		case SIOCGDEVID:
 		case SIOCGMIIPHY:
 		case SIOCGMIIREG:
 			if (copy_in_user(uifr32, uifr, sizeof(*uifr32)))
@@ -3194,6 +3195,7 @@ static int compat_sock_ioctl_trans(struct file *file, struct socket *sock,
 	case SIOCSIFMETRIC:
 	case SIOCGIFMTU:
 	case SIOCSIFMTU:
+	case SIOCSIFL2MTU:
 	case SIOCGIFMEM:
 	case SIOCSIFMEM:
 	case SIOCGIFHWADDR:
@@ -3215,12 +3217,15 @@ static int compat_sock_ioctl_trans(struct file *file, struct socket *sock,
 	case SIOCGIFPFLAGS:
 	case SIOCGIFTXQLEN:
 	case SIOCSIFTXQLEN:
+	case SIOCSDEVID:
+	case SIOCGDEVID:
 	case SIOCBRADDIF:
 	case SIOCBRDELIF:
 	case SIOCSIFNAME:
 	case SIOCGMIIPHY:
 	case SIOCGMIIREG:
 	case SIOCSMIIREG:
+	case SIOCSPROXYARP:
 		return dev_ifsioc(net, sock, cmd, argp);
 
 	case SIOCSARP:

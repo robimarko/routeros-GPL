@@ -76,7 +76,7 @@ static const int multicast_filter_limit = 32;
 
 #define R8169_REGS_SIZE		256
 #define R8169_NAPI_WEIGHT	64
-#define NUM_TX_DESC	64	/* Number of Tx descriptor registers */
+#define NUM_TX_DESC	256	/* Number of Tx descriptor registers */
 #define NUM_RX_DESC	256	/* Number of Rx descriptor registers */
 #define RX_BUF_SIZE	1536	/* Rx Buffer size */
 #define R8169_TX_RING_BYTES	(NUM_TX_DESC * sizeof(struct TxDesc))
@@ -4053,6 +4053,8 @@ rtl8169_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	/* Identify chip attached to board */
 	rtl8169_get_mac_version(tp, dev, cfg->default_ver);
+
+	dev->l2mtu = rtl_chip_infos[tp->mac_version].jumbo_max;
 
 	rtl_init_rxcfg(tp);
 

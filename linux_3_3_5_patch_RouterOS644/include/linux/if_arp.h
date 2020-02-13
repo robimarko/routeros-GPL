@@ -151,7 +151,7 @@ struct arphdr {
 	unsigned char		ar_tip[4];		/* target IP address		*/
 #endif
 
-};
+} __attribute__((packed));
 
 #ifdef __KERNEL__
 #include <linux/skbuff.h>

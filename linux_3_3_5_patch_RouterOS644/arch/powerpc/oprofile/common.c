@@ -24,6 +24,8 @@
 #include <asm/oprofile_impl.h>
 #include <asm/firmware.h>
 
+extern int __init hrtimer_oprofile_init(struct oprofile_operations *);
+
 static struct op_powerpc_model *model;
 
 static struct op_counter_config ctr[OP_MAX_COUNTER];
@@ -192,6 +194,11 @@ static int op_powerpc_create_files(struct super_block *sb, struct dentry *root)
 
 int __init oprofile_arch_init(struct oprofile_operations *ops)
 {
+	ops->backtrace = op_powerpc_backtrace;
+
+	if (hrtimer_oprofile_init(ops) == 0)
+		return 0;
+
 	if (!cur_cpu_spec->oprofile_cpu_type)
 		return -ENODEV;
 

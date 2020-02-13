@@ -80,7 +80,7 @@ static inline struct dma_map_ops *get_dma_ops(struct device *dev)
 	 * in the floppy driver directly to get a device for us.
 	 */
 	if (unlikely(dev == NULL))
-		return NULL;
+		return &dma_direct_ops;
 
 	return dev->archdata.dma_ops;
 }

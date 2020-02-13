@@ -205,6 +205,32 @@ void usb_put_intf(struct usb_interface *intf);
 #define USB_MAXINTERFACES	32
 #define USB_MAXIADS		(USB_MAXINTERFACES/2)
 
+/*
+ * USB Resume Timer: Every Host controller driver should drive the resume
+ * signalling on the bus for the amount of time defined by this macro.
+ *
+ * That way we will have a 'stable' behavior among all HCDs supported by Linux.
+ *
+ * Note that the USB Specification states we should drive resume for *at least*
+ * 20 ms, but it doesn't give an upper bound. This creates two possible
+ * situations which we want to avoid:
+ *
+ * (a) sometimes an msleep(20) might expire slightly before 20 ms, which causes
+ * us to fail USB Electrical Tests, thus failing Certification
+ *
+ * (b) Some (many) devices actually need more than 20 ms of resume signalling,
+ * and while we can argue that's against the USB Specification, we don't have
+ * control over which devices a certification laboratory will be using for
+ * certification. If CertLab uses a device which was tested against Windows and
+ * that happens to have relaxed resume signalling rules, we might fall into
+ * situations where we fail interoperability and electrical tests.
+ *
+ * In order to avoid both conditions, we're using a 40 ms resume timeout, which
+ * should cope with both LPJ calibration errors and devices not following every
+ * detail of the USB Specification.
+ */
+#define USB_RESUME_TIMEOUT	40 /* ms */
+
 /**
  * struct usb_interface_cache - long-term representation of a device interface
  * @num_altsetting: number of altsettings defined.
@@ -331,6 +357,12 @@ struct usb_bus {
 	u8 otg_port;			/* 0, or number of OTG/HNP port */
 	unsigned is_b_host:1;		/* true during some HNP roleswitches */
 	unsigned b_hnp_enable:1;	/* OTG: did A-Host enable HNP? */
+	unsigned no_stop_on_short:1;    /*
+					 * Quirk: some controllers don't stop
+					 * the ep queue on a short transfer
+					 * with the URB_SHORT_NOT_OK flag set.
+					 */
+	unsigned no_sg_constraint:1;	/* no sg constraint */
 	unsigned sg_tablesize;		/* 0 or largest number of sg list entries */
 
 	int devnum_next;		/* Next open device number in
@@ -350,6 +382,8 @@ struct usb_bus {
 					 */
 	int bandwidth_int_reqs;		/* number of Interrupt requests */
 	int bandwidth_isoc_reqs;	/* number of Isoc. requests */
+
+	unsigned resuming_ports;	/* bit array: resuming root-hub ports */
 
 #ifdef CONFIG_USB_DEVICEFS
 	struct dentry *usbfs_dentry;	/* usbfs dentry entry for the bus */
@@ -375,6 +409,74 @@ struct usb_bus {
 #define USB_MAXCHILDREN		(31)
 
 struct usb_tt;
+
+enum usb_device_removable {
+	USB_DEVICE_REMOVABLE_UNKNOWN = 0,
+	USB_DEVICE_REMOVABLE,
+	USB_DEVICE_FIXED,
+};
+
+enum usb_port_connect_type {
+	USB_PORT_CONNECT_TYPE_UNKNOWN = 0,
+	USB_PORT_CONNECT_TYPE_HOT_PLUG,
+	USB_PORT_CONNECT_TYPE_HARD_WIRED,
+	USB_PORT_NOT_USED,
+};
+
+/*
+ * USB 2.0 Link Power Management (LPM) parameters.
+ */
+struct usb2_lpm_parameters {
+	/* Best effort service latency indicate how long the host will drive
+	 * resume on an exit from L1.
+	 */
+	unsigned int besl;
+
+	/* Timeout value in microseconds for the L1 inactivity (LPM) timer.
+	 * When the timer counts to zero, the parent hub will initiate a LPM
+	 * transition to L1.
+	 */
+	int timeout;
+};
+
+/*
+ * USB 3.0 Link Power Management (LPM) parameters.
+ *
+ * PEL and SEL are USB 3.0 Link PM latencies for device-initiated LPM exit.
+ * MEL is the USB 3.0 Link PM latency for host-initiated LPM exit.
+ * All three are stored in nanoseconds.
+ */
+struct usb3_lpm_parameters {
+	/*
+	 * Maximum exit latency (MEL) for the host to send a packet to the
+	 * device (either a Ping for isoc endpoints, or a data packet for
+	 * interrupt endpoints), the hubs to decode the packet, and for all hubs
+	 * in the path to transition the links to U0.
+	 */
+	unsigned int mel;
+	/*
+	 * Maximum exit latency for a device-initiated LPM transition to bring
+	 * all links into U0.  Abbreviated as "PEL" in section 9.4.12 of the USB
+	 * 3.0 spec, with no explanation of what "P" stands for.  "Path"?
+	 */
+	unsigned int pel;
+
+	/*
+	 * The System Exit Latency (SEL) includes PEL, and three other
+	 * latencies.  After a device initiates a U0 transition, it will take
+	 * some time from when the device sends the ERDY to when it will finally
+	 * receive the data packet.  Basically, SEL should be the worse-case
+	 * latency from when a device starts initiating a U0 transition to when
+	 * it will get data.
+	 */
+	unsigned int sel;
+	/*
+	 * The idle timeout value that is currently programmed into the parent
+	 * hub for this device.  When the timer counts to zero, the parent hub
+	 * will initiate an LPM transition to either U1 or U2.
+	 */
+	int timeout;
+};
 
 /**
  * struct usb_device - kernel's representation of a USB device
@@ -477,7 +579,10 @@ struct usb_device {
 	unsigned wusb:1;
 	unsigned lpm_capable:1;
 	unsigned usb2_hw_lpm_capable:1;
+	unsigned usb2_hw_lpm_besl_capable:1;
 	unsigned usb2_hw_lpm_enabled:1;
+	unsigned usb2_hw_lpm_allowed:1;
+	unsigned usb3_lpm_enabled:1;
 	int string_langid;
 
 	/* static strings from the device */
@@ -509,6 +614,11 @@ struct usb_device {
 #endif
 	struct wusb_dev *wusb_dev;
 	int slot_id;
+	enum usb_device_removable removable;
+	struct usb2_lpm_parameters l1_params;
+	struct usb3_lpm_parameters u1_params;
+	struct usb3_lpm_parameters u2_params;
+	unsigned lpm_disable_count;
 };
 #define	to_usb_device(d) container_of(d, struct usb_device, dev)
 
@@ -882,6 +992,7 @@ struct usb_driver {
 	struct usbdrv_wrap drvwrap;
 	unsigned int no_dynamic_id:1;
 	unsigned int supports_autosuspend:1;
+	unsigned int disable_hub_initiated_lpm:1;
 	unsigned int soft_unbind:1;
 };
 #define	to_usb_driver(d) container_of(d, struct usb_driver, drvwrap.driver)

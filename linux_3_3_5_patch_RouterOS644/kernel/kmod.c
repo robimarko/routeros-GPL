@@ -77,6 +77,7 @@ char modprobe_path[KMOD_PATH_LEN] = "/sbin/modprobe";
  */
 int __request_module(bool wait, const char *fmt, ...)
 {
+#if 0
 	va_list args;
 	char module_name[MODULE_NAME_LEN];
 	unsigned int max_modprobes;
@@ -134,6 +135,9 @@ int __request_module(bool wait, const char *fmt, ...)
 
 	atomic_dec(&kmod_concurrent);
 	return ret;
+#else
+	return -EINVAL;
+#endif
 }
 EXPORT_SYMBOL(__request_module);
 #endif /* CONFIG_MODULES */

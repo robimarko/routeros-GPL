@@ -322,7 +322,7 @@ cmd_lzo = (cat $(filter-out FORCE,$^) | \
 # big dictionary would increase the memory usage too much in the multi-call
 # decompression mode. A BCJ filter isn't used either.
 quiet_cmd_xzkern = XZKERN  $@
-cmd_xzkern = (cat $(filter-out FORCE,$^) | \
+cmd_xzkern = rm -f $@; (cat $(filter-out FORCE,$^) | \
 	sh $(srctree)/scripts/xz_wrap.sh && \
 	$(call size_append, $(filter-out FORCE,$^))) > $@ || \
 	(rm -f $@ ; false)

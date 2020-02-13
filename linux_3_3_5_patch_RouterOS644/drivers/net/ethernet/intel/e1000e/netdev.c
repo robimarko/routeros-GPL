@@ -4559,7 +4559,7 @@ link_up:
 	/* Reset the timer */
 	if (!test_bit(__E1000_DOWN, &adapter->state))
 		mod_timer(&adapter->watchdog_timer,
-			  round_jiffies(jiffies + 2 * HZ));
+			  round_jiffies(jiffies + HZ));
 }
 
 #define E1000_TX_FLAGS_CSUM		0x00000001
@@ -6088,6 +6088,8 @@ static int __devinit e1000_probe(struct pci_dev *pdev,
 	netdev->watchdog_timeo		= 5 * HZ;
 	netif_napi_add(netdev, &adapter->napi, e1000_clean, 64);
 	strncpy(netdev->name, pci_name(pdev), sizeof(netdev->name) - 1);
+
+	netdev->l2mtu = 9014;
 
 	netdev->mem_start = mmio_start;
 	netdev->mem_end = mmio_start + mmio_len;

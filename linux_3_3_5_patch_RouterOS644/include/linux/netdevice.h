@@ -221,6 +221,8 @@ extern struct jump_label_key rps_needed;
 struct neighbour;
 struct neigh_parms;
 struct sk_buff;
+struct m_port;
+struct of_port;
 
 struct netdev_hw_addr {
 	struct list_head	list;
@@ -884,8 +886,7 @@ struct netdev_fcoe_hbainfo {
  *	flow_id is a flow ID to be passed to rps_may_expire_flow() later.
  *	Return the filter ID on success, or a negative error code.
  *
- *	Slave management functions (for bridge, bonding, etc). User should
- *	call netdev_set_master() to set dev->master properly.
+ *	Slave management functions (for bridge, bonding, etc).
  * int (*ndo_add_slave)(struct net_device *dev, struct net_device *slave_dev);
  *	Called to make another netdev an underling.
  *
@@ -905,6 +906,7 @@ struct netdev_fcoe_hbainfo {
  *	Must return >0 or -errno if it changed dev->features itself.
  *
  */
+struct fp_buf;
 struct net_device_ops {
 	int			(*ndo_init)(struct net_device *dev);
 	void			(*ndo_uninit)(struct net_device *dev);
@@ -912,6 +914,9 @@ struct net_device_ops {
 	int			(*ndo_stop)(struct net_device *dev);
 	netdev_tx_t		(*ndo_start_xmit) (struct sk_buff *skb,
 						   struct net_device *dev);
+	int			(*ndo_fast_path_xmit) (struct net_device *dev,
+						       struct fp_buf *fpb);
+	int			(*ndo_xmit_commit) (struct net_device *dev);
 	u16			(*ndo_select_queue)(struct net_device *dev,
 						    struct sk_buff *skb);
 	void			(*ndo_change_rx_flags)(struct net_device *dev,
@@ -926,6 +931,8 @@ struct net_device_ops {
 					          struct ifmap *map);
 	int			(*ndo_change_mtu)(struct net_device *dev,
 						  int new_mtu);
+	int			(*ndo_change_l2mtu)(struct net_device *dev,
+						  int new_l2mtu);
 	int			(*ndo_neigh_setup)(struct net_device *dev,
 						   struct neigh_parms *);
 	void			(*ndo_tx_timeout) (struct net_device *dev);
@@ -1012,6 +1019,42 @@ struct net_device_ops {
  *	FIXME: cleanup struct net_device such that network protocol info
  *	moves out.
  */
+struct fp_stuff;
+struct fp_stats_rcu;
+struct fp_dev_pcpu_stats {
+    u32 sp_rx_packet;
+    u32 sp_tx_packet;
+    u32 sp_rx_byte;
+    u32 sp_tx_byte;
+    u32 fp_rx_packet;
+    u32 fp_tx_packet;
+    u32 fp_rx_byte;
+    u32 fp_tx_byte;
+    u32 queue_stopped_drop;
+    u32 tx_drop;
+    u32 prev_fp_tx_packet;
+    u32 in_xmit;
+};
+
+struct fp_dev {
+	struct fp_stuff *stuff;
+	unsigned char dev_addr[ETH_ALEN];
+	int (*xmit)(struct net_device *dev, struct fp_buf *fpb);
+	struct hlist_node list;
+	struct fp_dev_pcpu_stats __percpu *stats;
+	struct fp_stats_rcu *stats_rcu;
+	struct net_device *forward_dev;
+	u64 sp_rx_packet;
+	u64 sp_tx_packet;
+	u64 sp_rx_byte;
+	u64 sp_tx_byte;
+	u64 fp_rx_packet;
+	u64 fp_tx_packet;
+	u64 fp_rx_byte;
+	u64 fp_tx_byte;
+	u64 queue_stopped_drop;
+	u64 tx_drop;
+};
 
 struct net_device {
 
@@ -1093,6 +1136,7 @@ struct net_device {
 	unsigned char		dma;		/* DMA channel		*/
 
 	unsigned int		mtu;	/* interface MTU value		*/
+	unsigned		l2mtu;	/* real layer 2 MTU */
 	unsigned short		type;	/* interface hardware type	*/
 	unsigned short		hard_header_len;	/* hardware hdr length	*/
 
@@ -1122,6 +1166,7 @@ struct net_device {
 
 #if IS_ENABLED(CONFIG_VLAN_8021Q)
 	struct vlan_info __rcu	*vlan_info;	/* VLAN info */
+	struct vlan_info __rcu	*vlan_info_alt;	/* VLAN info */
 #endif
 #if IS_ENABLED(CONFIG_NET_DSA)
 	struct dsa_switch_tree	*dsa_ptr;	/* dsa specific data */
@@ -1146,9 +1191,7 @@ struct net_device {
 						 * avoid dirtying this cache line.
 						 */
 
-	struct net_device	*master; /* Pointer to master device of a group,
-					  * which this device is member of.
-					  */
+	struct list_head	upper_dev_list; /* List of upper devices */
 
 	/* Interface address info used in eth_type_trans() */
 	unsigned char		*dev_addr;	/* hw address, (before bcast
@@ -1266,6 +1309,9 @@ struct net_device {
 	/* GARP */
 	struct garp_port __rcu	*garp_port;
 
+	struct of_port __rcu	*of_port; /* OpenFlow port */
+	struct m_port		*mesh_port;
+
 	/* class/net/name entry */
 	struct device		dev;
 	/* space for optional device, statistics, and wireless sysfs groups */
@@ -1277,6 +1323,10 @@ struct net_device {
 	/* for setting kernel sock attribute on TCP connection setup */
 #define GSO_MAX_SIZE		65536
 	unsigned int		gso_max_size;
+
+	unsigned		devid;
+	struct fp_dev fp;
+	unsigned long list_bitmap[256 / BITS_PER_LONG];
 
 #ifdef CONFIG_DCB
 	/* Data Center Bridging netlink ops */
@@ -1534,6 +1584,7 @@ struct packet_type {
 #define NETDEV_RELEASE		0x0012
 #define NETDEV_NOTIFY_PEERS	0x0013
 #define NETDEV_JOIN		0x0014
+#define NETDEV_CHANGEL2MTU      0x0015
 
 extern int register_netdevice_notifier(struct notifier_block *nb);
 extern int unregister_netdevice_notifier(struct notifier_block *nb);
@@ -1555,6 +1606,9 @@ extern rwlock_t				dev_base_lock;		/* Device list lock */
 		list_for_each_entry_continue(d, &(net)->dev_base_head, dev_list)
 #define for_each_netdev_continue_rcu(net, d)		\
 	list_for_each_entry_continue_rcu(d, &(net)->dev_base_head, dev_list)
+#define for_each_netdev_in_bond_rcu(bond, slave)	\
+		for_each_netdev_rcu(&init_net, slave)	\
+			if (netdev_master_upper_dev_get_rcu(slave) == bond)
 #define net_device_entry(lh)	list_entry(lh, struct net_device, dev_list)
 
 static inline struct net_device *next_net_device(struct net_device *dev)
@@ -1609,6 +1663,8 @@ extern int		dev_alloc_name(struct net_device *dev, const char *name);
 extern int		dev_open(struct net_device *dev);
 extern int		dev_close(struct net_device *dev);
 extern void		dev_disable_lro(struct net_device *dev);
+extern struct netdev_queue *dev_pick_tx(struct net_device *dev, struct sk_buff *skb);
+extern u16 __dev_pick_tx(struct net_device *dev, struct sk_buff *skb);
 extern int		dev_queue_xmit(struct sk_buff *skb);
 extern int		register_netdevice(struct net_device *dev);
 extern void		unregister_netdevice_queue(struct net_device *dev,
@@ -2551,6 +2607,7 @@ extern void		netdev_state_change(struct net_device *dev);
 extern int		netdev_bonding_change(struct net_device *dev,
 					      unsigned long event);
 extern void		netdev_features_change(struct net_device *dev);
+extern void		netdev_l2mtu_change(struct net_device *dev);
 /* Load a device via the kmod */
 extern void		dev_load(struct net *net, const char *name);
 extern void		dev_mcast_init(void);
@@ -2561,9 +2618,18 @@ extern int		netdev_max_backlog;
 extern int		netdev_tstamp_prequeue;
 extern int		weight_p;
 extern int		bpf_jit_enable;
-extern int		netdev_set_master(struct net_device *dev, struct net_device *master);
-extern int netdev_set_bond_master(struct net_device *dev,
-				  struct net_device *master);
+
+extern bool netdev_has_upper_dev(struct net_device *dev,
+				 struct net_device *upper_dev);
+extern bool netdev_has_any_upper_dev(struct net_device *dev);
+extern struct net_device *netdev_master_upper_dev_get(struct net_device *dev);
+extern struct net_device *netdev_master_upper_dev_get_rcu(struct net_device *dev);
+extern int netdev_upper_dev_link(struct net_device *dev,
+				 struct net_device *upper_dev);
+extern int netdev_master_upper_dev_link(struct net_device *dev,
+					struct net_device *upper_dev);
+extern void netdev_upper_dev_unlink(struct net_device *dev,
+				    struct net_device *upper_dev);
 extern int skb_checksum_help(struct sk_buff *skb);
 extern struct sk_buff *skb_gso_segment(struct sk_buff *skb,
 	netdev_features_t features);
@@ -2607,7 +2673,12 @@ void netdev_change_features(struct net_device *dev);
 void netif_stacked_transfer_operstate(const struct net_device *rootdev,
 					struct net_device *dev);
 
-netdev_features_t netif_skb_features(struct sk_buff *skb);
+netdev_features_t netif_skb_dev_features(struct sk_buff *skb,
+					 const struct net_device *dev);
+static inline netdev_features_t netif_skb_features(struct sk_buff *skb)
+{
+	return netif_skb_dev_features(skb, skb->dev);
+}
 
 static inline int net_gso_ok(netdev_features_t features, int gso_type)
 {
@@ -2641,6 +2712,11 @@ static inline void netif_set_gso_max_size(struct net_device *dev,
 					  unsigned int size)
 {
 	dev->gso_max_size = size;
+}
+
+static inline bool netif_is_bond_master(struct net_device *dev)
+{
+	return dev->flags & IFF_MASTER && dev->priv_flags & IFF_BONDING;
 }
 
 static inline int netif_is_bond_slave(struct net_device *dev)
@@ -2779,6 +2855,32 @@ do {								\
 	0;							\
 })
 #endif
+
+extern void (*ipv4_routing_changed)(void);
+extern void (*fp_ptype_all_changed)(int);
+extern void (*fp_nf_changed)(int, int pf);
+extern void (*fp_xfrm_changed)(int);
+
+DECLARE_PER_CPU(unsigned, per_cpu_netif_receive_depth);
+#ifdef __tile__
+#define MAX_NETIF_RECEIVE_DEPTH 5
+#else
+#define MAX_NETIF_RECEIVE_DEPTH 1
+#endif
+
+static inline int netif_receive_any(struct sk_buff *skb) {
+    unsigned *netif_receive_depth = &__get_cpu_var(per_cpu_netif_receive_depth);
+    int ret;
+    if (*netif_receive_depth < MAX_NETIF_RECEIVE_DEPTH) {
+	*netif_receive_depth += 1;
+	ret = netif_receive_skb(skb);
+	*netif_receive_depth -= 1;
+	return ret;
+    }
+    else {
+	return netif_rx(skb);
+    }
+}
 
 #endif /* __KERNEL__ */
 

@@ -1006,7 +1006,9 @@ static void __cpuinit probe_pcache(void)
 		              c->dcache.linesz;
 		c->dcache.waybit = __ffs(dcache_size/c->dcache.ways);
 
+#ifdef CONFIG_CPU_HAS_PREFETCH
 		c->options |= MIPS_CPU_PREFETCH;
+#endif
 		break;
 	}
 

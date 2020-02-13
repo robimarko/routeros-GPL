@@ -1,3 +1,16 @@
+config RB1200
+	bool "RB1200"
+	depends on 44x
+	default n
+	select 460EX
+	select PCI
+	select PPC4xx_GPIO
+	select PPC4xx_PCI_EXPRESS
+	select IBM_NEW_EMAC_RGMII
+	select IBM_NEW_EMAC_ZMII
+	help
+	  This option enables support for the RB1200 board.
+
 config PPC_47x
 	bool "Support for 47x variant"
 	depends on 44x

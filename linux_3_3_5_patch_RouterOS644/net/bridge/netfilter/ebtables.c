@@ -1568,7 +1568,11 @@ struct compat_ebt_entry_mwt {
 		compat_uptr_t ptr;
 	} u;
 	compat_uint_t match_size;
+#ifdef __tilegx__
+	compat_uint_t data[0] __attribute__ ((aligned (__alignof__(struct _xt_align))));
+#else
 	compat_uint_t data[0];
+#endif
 };
 
 /* account for possible padding between match_size and ->data */

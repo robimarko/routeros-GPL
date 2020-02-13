@@ -56,6 +56,10 @@ extern void __raw_readsl(const void __iomem *addr, void *data, int longlen);
 #define __raw_readw(a)		(__chk_io_ptr(a), *(volatile unsigned short __force *)(a))
 #define __raw_readl(a)		(__chk_io_ptr(a), *(volatile unsigned int __force   *)(a))
 
+#define __raw_readb_no_log(a)	(__chk_io_ptr(a), *(volatile unsigned char __force  *)(a))
+#define __raw_readw_no_log(a)	(__chk_io_ptr(a), *(volatile unsigned short __force *)(a))
+#define __raw_readl_no_log(a)	(__chk_io_ptr(a), *(volatile unsigned int __force *)(a))
+
 /*
  * Architecture ioremap implementation.
  */

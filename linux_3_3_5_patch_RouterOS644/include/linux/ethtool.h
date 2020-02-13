@@ -334,6 +334,8 @@ struct ethtool_test {
 	__u32	cmd;		/* ETHTOOL_TEST */
 	__u32	flags;		/* ETH_TEST_FL_xxx */
 	__u32	reserved;
+	__u32	reserved2;
+	__u32	reserved3;
 	__u32	len;		/* result length, in number of u64 elements */
 	__u64	data[0];
 };
@@ -1039,6 +1041,8 @@ struct ethtool_ops {
 #define SUPPORTED_10000baseR_FEC	(1 << 20)
 #define SUPPORTED_20000baseMLD2_Full	(1 << 21)
 #define SUPPORTED_20000baseKR2_Full	(1 << 22)
+#define SUPPORTED_2500baseT_Full	(1 << 30)
+#define SUPPORTED_5000baseT_Full	(1 << 31)
 
 /* Indicates what features are advertised by the interface. */
 #define ADVERTISED_10baseT_Half		(1 << 0)
@@ -1064,6 +1068,8 @@ struct ethtool_ops {
 #define ADVERTISED_10000baseR_FEC	(1 << 20)
 #define ADVERTISED_20000baseMLD2_Full	(1 << 21)
 #define ADVERTISED_20000baseKR2_Full	(1 << 22)
+#define ADVERTISED_2500baseT_Full	(1 << 30)
+#define ADVERTISED_5000baseT_Full	(1 << 31)
 
 /* The following are all involved in forcing a particular link
  * mode for the device for setting things.  When getting the
@@ -1076,6 +1082,7 @@ struct ethtool_ops {
 #define SPEED_100		100
 #define SPEED_1000		1000
 #define SPEED_2500		2500
+#define SPEED_5000		5000
 #define SPEED_10000		10000
 #define SPEED_UNKNOWN		-1
 

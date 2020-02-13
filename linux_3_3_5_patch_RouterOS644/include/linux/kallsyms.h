@@ -32,7 +32,7 @@ extern int kallsyms_lookup_size_offset(unsigned long addr,
 const char *kallsyms_lookup(unsigned long addr,
 			    unsigned long *symbolsize,
 			    unsigned long *offset,
-			    char **modname, char *namebuf);
+			    struct module **mod, char *namebuf);
 
 /* Look up a kernel symbol and return it in a text buffer. */
 extern int sprint_symbol(char *buffer, unsigned long address);

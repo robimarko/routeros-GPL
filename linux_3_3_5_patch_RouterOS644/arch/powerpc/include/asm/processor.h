@@ -157,21 +157,21 @@ struct thread_struct {
 #endif
 	struct pt_regs	*regs;		/* Pointer to saved register state */
 	mm_segment_t	fs;		/* for get_fs() validation */
-#ifdef CONFIG_BOOKE
+#if defined(CONFIG_BOOKE) || defined(CONFIG_RB_PPC)
 	/* BookE base exception scratch space; align on cacheline */
 	unsigned long	normsave[8] ____cacheline_aligned;
 #endif
 #ifdef CONFIG_PPC32
 	void		*pgdir;		/* root of page-table tree */
 #endif
-#ifdef CONFIG_PPC_ADV_DEBUG_REGS
+#if defined(CONFIG_PPC_ADV_DEBUG_REGS) || defined(CONFIG_RB_PPC)
 	/*
 	 * The following help to manage the use of Debug Control Registers
 	 * om the BookE platforms.
 	 */
 	unsigned long	dbcr0;
 	unsigned long	dbcr1;
-#ifdef CONFIG_BOOKE
+#if defined(CONFIG_BOOKE) || defined(CONFIG_RB_PPC)
 	unsigned long	dbcr2;
 #endif
 	/*
@@ -189,15 +189,19 @@ struct thread_struct {
 	 */
 	unsigned long	iac1;
 	unsigned long	iac2;
+#ifdef CONFIG_PPC_ADV_DEBUG_IACS
 #if CONFIG_PPC_ADV_DEBUG_IACS > 2
 	unsigned long	iac3;
 	unsigned long	iac4;
 #endif
+#endif
 	unsigned long	dac1;
 	unsigned long	dac2;
+#ifdef CONFIG_PPC_ADV_DEBUG_DVCS
 #if CONFIG_PPC_ADV_DEBUG_DVCS > 0
 	unsigned long	dvc1;
 	unsigned long	dvc2;
+#endif
 #endif
 #endif
 	/* FP and VSX 0-31 register set */

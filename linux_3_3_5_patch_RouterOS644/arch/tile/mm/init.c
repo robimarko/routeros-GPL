@@ -60,6 +60,8 @@ unsigned long VMALLOC_RESERVE = CONFIG_VMALLOC_RESERVE;
 EXPORT_SYMBOL(VMALLOC_RESERVE);
 #endif
 
+DEFINE_PER_CPU(struct mmu_gather, mmu_gathers);
+
 /* Create an L2 page table */
 static pte_t * __init alloc_pte(void)
 {
@@ -83,7 +85,7 @@ static int num_l2_ptes[MAX_NUMNODES];
 
 static void init_prealloc_ptes(int node, int pages)
 {
-	BUG_ON(pages & (HV_L2_ENTRIES-1));
+	BUG_ON(pages & (PTRS_PER_PTE - 1));
 	if (pages) {
 		num_l2_ptes[node] = pages;
 		l2_ptes[node] = __alloc_bootmem(pages * sizeof(pte_t),
@@ -132,14 +134,9 @@ static void __init assign_pte(pmd_t *pmd, pte_t *page_table)
 
 #ifdef __tilegx__
 
-#if HV_L1_SIZE != HV_L2_SIZE
-# error Rework assumption that L1 and L2 page tables are same size.
-#endif
-
-/* Since pmd_t arrays and pte_t arrays are the same size, just use casts. */
 static inline pmd_t *alloc_pmd(void)
 {
-	return (pmd_t *)alloc_pte();
+	return __alloc_bootmem(L1_KERNEL_PGTABLE_SIZE, HV_PAGE_TABLE_ALIGN, 0);
 }
 
 static inline void assign_pmd(pud_t *pud, pmd_t *pmd)
@@ -156,7 +153,21 @@ void __init shatter_pmd(pmd_t *pmd)
 	assign_pte(pmd, pte);
 }
 
-#ifdef CONFIG_HIGHMEM
+#ifdef __tilegx__
+static pmd_t *__init get_pmd(pgd_t pgtables[], unsigned long va)
+{
+	pud_t *pud = pud_offset(&pgtables[pgd_index(va)], va);
+	if (pud_none(*pud))
+		assign_pmd(pud, alloc_pmd());
+	return pmd_offset(pud, va);
+}
+#else
+static pmd_t *__init get_pmd(pgd_t pgtables[], unsigned long va)
+{
+	return pmd_offset(pud_offset(&pgtables[pgd_index(va)], va), va);
+}
+#endif
+
 /*
  * This function initializes a certain range of kernel virtual memory
  * with new bootmem page tables, everywhere page tables are missing in
@@ -169,24 +180,17 @@ void __init shatter_pmd(pmd_t *pmd)
  * checking the pgd every time.
  */
 static void __init page_table_range_init(unsigned long start,
-					 unsigned long end, pgd_t *pgd_base)
+					 unsigned long end, pgd_t *pgd)
 {
-	pgd_t *pgd;
-	int pgd_idx;
 	unsigned long vaddr;
-
-	vaddr = start;
-	pgd_idx = pgd_index(vaddr);
-	pgd = pgd_base + pgd_idx;
-
-	for ( ; (pgd_idx < PTRS_PER_PGD) && (vaddr != end); pgd++, pgd_idx++) {
-		pmd_t *pmd = pmd_offset(pud_offset(pgd, vaddr), vaddr);
+	start = round_down(start, PMD_SIZE);
+	end = round_up(end, PMD_SIZE);
+	for (vaddr = start; vaddr < end; vaddr += PMD_SIZE) {
+		pmd_t *pmd = get_pmd(pgd, vaddr);
 		if (pmd_none(*pmd))
 			assign_pte(pmd, alloc_pte());
-		vaddr += PMD_SIZE;
 	}
 }
-#endif /* CONFIG_HIGHMEM */
 
 
 #if CHIP_HAS_CBOX_HOME_MAP()
@@ -195,7 +199,68 @@ static int __initdata ktext_hash = 1;  /* .text pages */
 static int __initdata kdata_hash = 1;  /* .data and .bss pages */
 int __write_once hash_default = 1;     /* kernel allocator pages */
 EXPORT_SYMBOL(hash_default);
+#ifndef CONFIG_HOMECACHE
 int __write_once kstack_hash = 1;      /* if no homecaching, use h4h */
+#else
+int __write_once kstack_hash;      /* kernel stacks */
+
+/*
+ * This function is the primary driver for caching modes set up
+ * for kernel text and data.  The "ktext" and "kdata" boot options
+ * are relevant only if we are using page-at-a-time caching modes.
+ */
+static int __init setup_kcache_hash(char *str)
+{
+	if (str == NULL)
+		return -EINVAL;
+
+	if (strcmp(str, "all") == 0) {
+		ktext_hash = 1;
+		kdata_hash = 1;
+		hash_default = 1;
+		kstack_hash = 1;
+	} else if (strcmp(str, "allbutstack") == 0) {
+		ktext_hash = 1;
+		kdata_hash = 1;
+		hash_default = 1;
+		kstack_hash = 0;
+	} else if (strcmp(str, "static") == 0) {
+		ktext_hash = 1;
+		kdata_hash = 1;
+		hash_default = 0;
+		kstack_hash = 0;
+	} else if (strcmp(str, "ro") == 0) {
+		ktext_hash = 1;
+		kdata_hash = 0;
+		hash_default = 0;
+		kstack_hash = 0;
+	} else if (strcmp(str, "none") == 0) {
+		ktext_hash = 0;
+		kdata_hash = 0;
+		hash_default = 0;
+		kstack_hash = 0;
+	} else {
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+early_param("kcache_hash", setup_kcache_hash);
+
+/*
+ * This is a combo function that both has the effect of kcache_hash
+ * and ucache_hash together.
+ */
+static int __init setup_cache_hash(char *str)
+{
+	setup_ucache_hash(str);
+	return setup_kcache_hash(str);
+}
+
+early_param("cache_hash", setup_cache_hash);
+
+#endif /* CONFIG_HOMECACHE */
 #endif /* CHIP_HAS_CBOX_HOME_MAP */
 
 /*
@@ -207,7 +272,49 @@ int __write_once kstack_hash = 1;      /* if no homecaching, use h4h */
 static __initdata struct cpumask kdata_mask;
 static __initdata int kdata_arg_seen;
 
+#ifndef CONFIG_HOMECACHE
 int __write_once kdata_huge;       /* if no homecaching, small pages */
+#else
+int __write_once kdata_huge = CHIP_HAS_CBOX_HOME_MAP(); /* kernel huge pages */
+//int __write_once kdata_huge = 0;
+
+static int __init setup_kdata(char *str)
+{
+	char buf[NR_CPUS * 5];
+
+	if (str == NULL)
+		return -EINVAL;
+
+	if (strcmp(str, "huge") == 0) {
+#if CHIP_HAS_CBOX_HOME_MAP()
+		kdata_huge = 1;
+#else
+		pr_err("kdata=huge: only supported on TILEPro and later.\n");
+#endif
+		return 0;
+	}
+
+	if (strcmp(str, "small") == 0) {
+		kdata_huge = 0;
+		str += strlen("small");
+		if (*str == ',')
+			++str;
+		if (*str == '\0')
+			return 0;
+	}
+
+	if (cpulist_parse(str, &kdata_mask) != 0)
+		return -EINVAL;
+
+	kdata_arg_seen = 1;
+	cpulist_scnprintf(buf, sizeof(buf), &kdata_mask);
+	pr_info("kdata: using caching neighborhood %s\n", buf);
+	return 0;
+}
+
+early_param("kdata", setup_kdata);
+
+#endif  /* CONFIG_HOMECACHE */
 
 
 /* Combine a generic pgprot_t with cache home to get a cache-aware pgprot. */
@@ -255,10 +362,12 @@ static pgprot_t __init init_pgprot(ulong address)
 		return construct_pgprot(PAGE_KERNEL_RO, PAGE_HOME_IMMUTABLE);
 	}
 
+#ifdef CONFIG_HOMECACHE
 	/* As a performance optimization, keep the boot init stack here. */
 	if (address >= (ulong)&init_thread_union &&
 	    address < (ulong)&init_thread_union + THREAD_SIZE)
 		return construct_pgprot(PAGE_KERNEL, smp_processor_id());
+#endif
 
 #ifndef __tilegx__
 #if !ATOMIC_LOCKS_FOUND_VIA_TABLE()
@@ -380,6 +489,14 @@ static int __init setup_ktext(char *str)
 		pr_info("ktext: using maximal caching neighborhood\n");
 	}
 
+#ifdef CONFIG_DATAPLANE
+	/* Neighborhood cache ktext pages on all non-dataplane cpus. */
+	else if (strcmp(str, "nondataplane") == 0) {
+		ktext_small = 1;
+		ktext_nondataplane = 1;
+		pr_info("ktext: caching on all non-dataplane tiles\n");
+	}
+#endif
 
 	/* Neighborhood ktext pages on specified mask */
 	else if (cpulist_parse(str, &ktext_mask) == 0) {
@@ -415,21 +532,6 @@ static inline pgprot_t ktext_set_nocache(pgprot_t prot)
 	return prot;
 }
 
-#ifndef __tilegx__
-static pmd_t *__init get_pmd(pgd_t pgtables[], unsigned long va)
-{
-	return pmd_offset(pud_offset(&pgtables[pgd_index(va)], va), va);
-}
-#else
-static pmd_t *__init get_pmd(pgd_t pgtables[], unsigned long va)
-{
-	pud_t *pud = pud_offset(&pgtables[pgd_index(va)], va);
-	if (pud_none(*pud))
-		assign_pmd(pud, alloc_pmd());
-	return pmd_offset(pud, va);
-}
-#endif
-
 /* Temporary page table we use for staging. */
 static pgd_t pgtables[PTRS_PER_PGD]
  __attribute__((aligned(HV_PAGE_TABLE_ALIGN)));
@@ -450,6 +552,7 @@ static pgd_t pgtables[PTRS_PER_PGD]
  */
 static void __init kernel_physical_mapping_init(pgd_t *pgd_base)
 {
+	unsigned long long irqmask;
 	unsigned long address, pfn;
 	pmd_t *pmd;
 	pte_t *pte;
@@ -484,6 +587,11 @@ static void __init kernel_physical_mapping_init(pgd_t *pgd_base)
 	 * the whole chip too.
 	 */
 	cpumask_copy(&kstripe_mask, cpu_possible_mask);
+#ifdef CONFIG_DATAPLANE
+	cpumask_andnot(&kstripe_mask, &kstripe_mask, &dataplane_map);
+	if (cpumask_empty(&kstripe_mask))
+		cpumask_copy(&kstripe_mask, cpu_possible_mask);
+#endif
 	if (!kdata_arg_seen)
 		kdata_mask = kstripe_mask;
 
@@ -558,6 +666,7 @@ static void __init kernel_physical_mapping_init(pgd_t *pgd_base)
 
 	address = MEM_SV_INTRPT;
 	pmd = get_pmd(pgtables, address);
+	pfn = 0;  /* code starts at PA 0 */
 	if (ktext_small) {
 		/* Allocate an L2 PTE for the kernel text */
 		int cpu = 0;
@@ -580,10 +689,15 @@ static void __init kernel_physical_mapping_init(pgd_t *pgd_base)
 		}
 
 		BUG_ON(address != (unsigned long)_stext);
-		pfn = 0;  /* code starts at PA 0 */
+		pte = NULL;
+		for (; address < (unsigned long)_einittext;
+		     pfn++, address += PAGE_SIZE) {
+			pte_ofs = pte_index(address);
+			if (pte_ofs == 0) {
+				if (pte)
+					assign_pte(pmd++, pte);
 		pte = alloc_pte();
-		for (pte_ofs = 0; address < (unsigned long)_einittext;
-		     pfn++, pte_ofs++, address += PAGE_SIZE) {
+			}
 			if (!ktext_local) {
 				prot = set_remote_cache_cpu(prot, cpu);
 				cpu = cpumask_next(cpu, &ktext_mask);
@@ -592,6 +706,7 @@ static void __init kernel_physical_mapping_init(pgd_t *pgd_base)
 			}
 			pte[pte_ofs] = pfn_pte(pfn, prot);
 		}
+		if (pte)
 		assign_pte(pmd, pte);
 	} else {
 		pte_t pteval = pfn_pte(0, PAGE_KERNEL_EXEC);
@@ -615,7 +730,9 @@ static void __init kernel_physical_mapping_init(pgd_t *pgd_base)
 		else
 			pteval = hv_pte_set_mode(pteval,
 						 HV_PTE_MODE_CACHE_NO_L3);
-		*(pte_t *)pmd = pteval;
+		for (; address < (unsigned long)_einittext;
+		     pfn += PFN_DOWN(HPAGE_SIZE), address += HPAGE_SIZE)
+			*(pte_t *)(pmd++) = pfn_pte(pfn, pteval);
 	}
 
 	/* Set swapper_pgprot here so it is flushed to memory right away. */
@@ -630,10 +747,13 @@ static void __init kernel_physical_mapping_init(pgd_t *pgd_base)
 	 *  - install pgtables[] as the real page table
 	 *  - flush the TLB so the new page table takes effect
 	 */
+	irqmask = interrupt_mask_save_mask();
+	interrupt_mask_set_mask(-1ULL);
 	rc = flush_and_install_context(__pa(pgtables),
 				       init_pgprot((unsigned long)pgtables),
 				       __get_cpu_var(current_asid),
 				       cpumask_bits(my_cpu_mask));
+	interrupt_mask_restore_mask(irqmask);
 	BUG_ON(rc != 0);
 
 	/* Copy the page table back to the normal swapper_pg_dir. */
@@ -696,6 +816,7 @@ static void __init permanent_kmaps_init(pgd_t *pgd_base)
 #endif /* CONFIG_HIGHMEM */
 
 
+#ifndef CONFIG_64BIT
 static void __init init_free_pfn_range(unsigned long start, unsigned long end)
 {
 	unsigned long pfn;
@@ -738,16 +859,15 @@ static void __init set_non_bootmem_pages_init(void)
 	for_each_zone(z) {
 		unsigned long start, end;
 		int nid = z->zone_pgdat->node_id;
+#ifdef CONFIG_HIGHMEM
 		int idx = zone_idx(z);
+#endif
 
 		start = z->zone_start_pfn;
-		if (start == 0)
-			continue;  /* bootmem */
 		end = start + z->spanned_pages;
-		if (idx == ZONE_NORMAL) {
-			BUG_ON(start != node_start_pfn[nid]);
-			start = node_free_pfn[nid];
-		}
+		start = max(start, node_free_pfn[nid]);
+		start = max(start, max_low_pfn);
+
 #ifdef CONFIG_HIGHMEM
 		if (idx == ZONE_HIGHMEM)
 			totalhigh_pages += z->spanned_pages;
@@ -757,7 +877,7 @@ static void __init set_non_bootmem_pages_init(void)
 			if (start < percpu_pfn && end > percpu_pfn)
 				end = percpu_pfn;
 		}
-#ifdef CONFIG_PCI
+#if defined(CONFIG_PCI)
 		if (start <= pci_reserve_start_pfn &&
 		    end > pci_reserve_start_pfn) {
 			if (end > pci_reserve_end_pfn)
@@ -768,6 +888,7 @@ static void __init set_non_bootmem_pages_init(void)
 		init_free_pfn_range(start, end);
 	}
 }
+#endif
 
 /*
  * paging_init() sets up the page tables - note that all of lowmem is
@@ -775,9 +896,6 @@ static void __init set_non_bootmem_pages_init(void)
  */
 void __init paging_init(void)
 {
-#ifdef CONFIG_HIGHMEM
-	unsigned long vaddr, end;
-#endif
 #ifdef __tilegx__
 	pud_t *pud;
 #endif
@@ -785,14 +903,14 @@ void __init paging_init(void)
 
 	kernel_physical_mapping_init(pgd_base);
 
-#ifdef CONFIG_HIGHMEM
 	/*
 	 * Fixed mappings, only the page table structure has to be
 	 * created - mappings will be set by set_fixmap():
 	 */
-	vaddr = __fix_to_virt(__end_of_fixed_addresses - 1) & PMD_MASK;
-	end = (FIXADDR_TOP + PMD_SIZE - 1) & PMD_MASK;
-	page_table_range_init(vaddr, end, pgd_base);
+	page_table_range_init(fix_to_virt(__end_of_fixed_addresses - 1),
+			      FIXADDR_TOP, pgd_base);
+
+#ifdef CONFIG_HIGHMEM
 	permanent_kmaps_init(pgd_base);
 #endif
 
@@ -804,12 +922,26 @@ void __init paging_init(void)
 	 * changing init_mm once we get up and running, and there's no
 	 * need for e.g. vmalloc_sync_all().
 	 */
-	BUILD_BUG_ON(pgd_index(VMALLOC_START) != pgd_index(VMALLOC_END));
+	BUILD_BUG_ON(pgd_index(VMALLOC_START) != pgd_index(VMALLOC_END - 1));
 	pud = pud_offset(pgd_base + pgd_index(VMALLOC_START), VMALLOC_START);
 	assign_pmd(pud, alloc_pmd());
 #endif
 }
 
+#ifdef CONFIG_HOMECACHE
+/* Return the PAGE_HOME_xxx value based on the kernel PTE. */
+static int get_page_home(pte_t pte)
+{
+	if (!hv_pte_get_writable(pte))
+		return PAGE_HOME_IMMUTABLE;
+#if CHIP_HAS_CBOX_HOME_MAP()
+	else if (hv_pte_get_mode(pte) == HV_PTE_MODE_CACHE_HASH_L3)
+		return PAGE_HOME_HASH;
+#endif
+	else
+		return get_remote_cache_cpu(pte);
+}
+#endif
 
 /*
  * Walk the kernel page tables and derive the page_home() from
@@ -818,6 +950,40 @@ void __init paging_init(void)
  */
 void __init set_page_homes(void)
 {
+#ifdef CONFIG_HOMECACHE
+	struct zone *zone;
+	int home = initial_heap_home();
+	unsigned long address;
+
+	/*
+	 * First walk the zones and set the pages to all have
+	 * the default heap caching.
+	 */
+	for_each_zone(zone) {
+		unsigned long pfn = zone->zone_start_pfn;
+		unsigned long end_pfn = pfn + zone->spanned_pages;
+		struct page *page = pfn_to_page(pfn);
+		for (; pfn < end_pfn; ++pfn, ++page)
+			set_page_home(page, home);
+	}
+
+	/*
+	 * Now walk through the loaded pages, update the page homecache,
+	 * and mark all pages as non-migrateable.  (Init pages that
+	 * are freed back to the heap are unmarked when we free them.)
+	 */
+	for (address = PAGE_OFFSET; address < (unsigned long) _end;
+	     address += PAGE_SIZE) {
+		enum { CODE_DELTA = MEM_SV_INTRPT - PAGE_OFFSET };
+		struct page *pg = virt_to_page((void *)address);
+		pte_t pte = *virt_to_pte(NULL, address);
+
+		/* Adjust page.home on all loaded pages. */
+		BUG_ON(!pte_present(pte));
+		set_page_home(pg, get_page_home(pte));
+		__SetPageHomecacheNomigrate(pg);
+	}
+#endif
 }
 
 static void __init set_max_mapnr_init(void)
@@ -856,8 +1022,10 @@ void __init mem_init(void)
 	/* this will put all bootmem onto the freelists */
 	totalram_pages += free_all_bootmem();
 
+#ifndef CONFIG_64BIT
 	/* count all remaining LOWMEM and give all HIGHMEM to page allocator */
 	set_non_bootmem_pages_init();
+#endif
 
 	codesize =  (unsigned long)&_etext - (unsigned long)&_text;
 	datasize =  (unsigned long)&_end - (unsigned long)&_sdata;
@@ -967,6 +1135,9 @@ static void mark_w1data_ro(void)
 		unsigned long pfn = kaddr_to_pfn((void *)addr);
 		pte_t *ptep = virt_to_pte(NULL, addr);
 		BUG_ON(pte_huge(*ptep));   /* not relevant for kdata_huge */
+#ifdef CONFIG_HOMECACHE
+		set_page_home(pfn_to_page(pfn), PAGE_HOME_IMMUTABLE);
+#endif
 		set_pte_at(&init_mm, addr, ptep, pfn_pte(pfn, PAGE_KERNEL_RO));
 	}
 }
@@ -993,6 +1164,9 @@ __setup("initfree=", set_initfree);
 
 static void free_init_pages(char *what, unsigned long begin, unsigned long end)
 {
+#ifdef CONFIG_HOMECACHE
+	int home = initial_heap_home();
+#endif
 	unsigned long addr = (unsigned long) begin;
 
 	if (kdata_huge && !initfree) {
@@ -1022,6 +1196,10 @@ static void free_init_pages(char *what, unsigned long begin, unsigned long end)
 			pte_clear(&init_mm, addr, ptep);
 			continue;
 		}
+#ifdef CONFIG_HOMECACHE
+		set_page_home(page, home);
+		__clear_bit(PG_homecache_nomigrate, &page->flags);
+#endif
 		__ClearPageReserved(page);
 		init_page_count(page);
 		if (pte_huge(*ptep))

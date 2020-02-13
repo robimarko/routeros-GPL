@@ -276,11 +276,6 @@ struct irq_affinity_notify {
 extern int
 irq_set_affinity_notifier(unsigned int irq, struct irq_affinity_notify *notify);
 
-static inline void irq_run_affinity_notifiers(void)
-{
-	flush_scheduled_work();
-}
-
 #else /* CONFIG_SMP */
 
 static inline int irq_set_affinity(unsigned int irq, const struct cpumask *m)
@@ -705,5 +700,6 @@ int arch_show_interrupts(struct seq_file *p, int prec);
 extern int early_irq_init(void);
 extern int arch_probe_nr_irqs(void);
 extern int arch_early_irq_init(void);
+extern void irq_set_pending(unsigned int irq);
 
 #endif

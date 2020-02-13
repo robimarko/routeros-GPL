@@ -111,6 +111,8 @@ struct compressor {
 	struct module *owner;
 	/* Extra skb space needed by the compressor algorithm */
 	unsigned int comp_extra;
+	int lockless;
+	int inplace;
 };
 
 /*
@@ -143,7 +145,7 @@ struct compressor {
  * Max # bytes for a CCP option
  */
 
-#define CCP_MAX_OPTION_LENGTH	32
+#define CCP_MAX_OPTION_LENGTH	64
 
 /*
  * Parts of a CCP packet.

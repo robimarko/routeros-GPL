@@ -15,6 +15,7 @@
 #include <net/dst.h>
 #include <net/xfrm.h>
 #include <net/ip.h>
+#include <asm/unaligned.h>
 
 static struct xfrm_policy_afinfo xfrm4_policy_afinfo;
 
@@ -128,9 +129,8 @@ _decode_session4(struct sk_buff *skb, struct flowi *fl, int reverse)
 			    pskb_may_pull(skb, xprth + 4 - skb->data)) {
 				__be16 *ports = (__be16 *)xprth;
 
-				fl4->fl4_sport = ports[!!reverse];
-				fl4->fl4_dport = ports[!reverse];
-			}
+				fl4->fl4_sport = get_unaligned(ports + !!reverse);
+				fl4->fl4_dport = get_unaligned(ports + !reverse);			}
 			break;
 
 		case IPPROTO_ICMP:
@@ -146,7 +146,7 @@ _decode_session4(struct sk_buff *skb, struct flowi *fl, int reverse)
 			if (pskb_may_pull(skb, xprth + 4 - skb->data)) {
 				__be32 *ehdr = (__be32 *)xprth;
 
-				fl4->fl4_ipsec_spi = ehdr[0];
+				fl4->fl4_ipsec_spi = get_unaligned(ehdr + 0);
 			}
 			break;
 
@@ -154,7 +154,7 @@ _decode_session4(struct sk_buff *skb, struct flowi *fl, int reverse)
 			if (pskb_may_pull(skb, xprth + 8 - skb->data)) {
 				__be32 *ah_hdr = (__be32*)xprth;
 
-				fl4->fl4_ipsec_spi = ah_hdr[1];
+				fl4->fl4_ipsec_spi = get_unaligned(ah_hdr + 1);
 			}
 			break;
 
@@ -162,7 +162,8 @@ _decode_session4(struct sk_buff *skb, struct flowi *fl, int reverse)
 			if (pskb_may_pull(skb, xprth + 4 - skb->data)) {
 				__be16 *ipcomp_hdr = (__be16 *)xprth;
 
-				fl4->fl4_ipsec_spi = htonl(ntohs(ipcomp_hdr[1]));
+				fl4->fl4_ipsec_spi = htonl(ntohs(get_unaligned(ipcomp_hdr + 1)));
+				    htonl(ntohs(get_unaligned(ipcomp_hdr + 1)));
 			}
 			break;
 
@@ -171,10 +172,10 @@ _decode_session4(struct sk_buff *skb, struct flowi *fl, int reverse)
 				__be16 *greflags = (__be16 *)xprth;
 				__be32 *gre_hdr = (__be32 *)xprth;
 
-				if (greflags[0] & GRE_KEY) {
-					if (greflags[0] & GRE_CSUM)
+				if (get_unaligned(greflags) & GRE_KEY) {
+					if (get_unaligned(greflags) & GRE_CSUM)
 						gre_hdr++;
-					fl4->fl4_gre_key = gre_hdr[1];
+					fl4->fl4_gre_key = get_unaligned(gre_hdr + 1);
 				}
 			}
 			break;

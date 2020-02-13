@@ -371,6 +371,8 @@ struct sock {
   	int			(*sk_backlog_rcv)(struct sock *sk,
 						  struct sk_buff *skb);  
 	void                    (*sk_destruct)(struct sock *sk);
+	int			(*sk_lockless_rcv)(struct sock *sk,
+						   struct sk_buff *skb);
 };
 
 /*
@@ -1684,7 +1686,7 @@ static inline int skb_add_data_nocache(struct sock *sk, struct sk_buff *skb,
 {
 	int err, offset = skb->len;
 
-	err = skb_do_copy_data_nocache(sk, skb, from, skb_put(skb, copy),
+	err = skb_do_copy_data_nocache(sk, skb, from, (char *) skb_put(skb, copy),
 				       copy, offset);
 	if (err)
 		__skb_trim(skb, offset);
@@ -1718,7 +1720,7 @@ static inline int skb_copy_to_page(struct sock *sk, char __user *from,
 {
 	if (skb->ip_summed == CHECKSUM_NONE) {
 		int err = 0;
-		__wsum csum = csum_and_copy_from_user(from,
+		__wsum csum = csum_and_copy_from_user((unsigned char *) from,
 						     page_address(page) + off,
 							    copy, 0, &err);
 		if (err)

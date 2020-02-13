@@ -357,10 +357,11 @@ static void flush_channel(struct device *dev, int ch, int error, int reset_ch)
 	struct talitos_private *priv = dev_get_drvdata(dev);
 	struct talitos_request *request, saved_req;
 	unsigned long flags;
-	int tail, status;
+	int tail, status, released;
 
 	spin_lock_irqsave(&priv->chan[ch].tail_lock, flags);
 
+	released = 0;
 	tail = priv->chan[ch].tail;
 	while (priv->chan[ch].fifo[tail].desc) {
 		request = &priv->chan[ch].fifo[tail];
@@ -393,18 +394,20 @@ static void flush_channel(struct device *dev, int ch, int error, int reset_ch)
 
 		spin_unlock_irqrestore(&priv->chan[ch].tail_lock, flags);
 
-		atomic_dec(&priv->chan[ch].submit_count);
+		++released;
 
 		saved_req.callback(dev, saved_req.desc, saved_req.context,
 				   status);
 		/* channel may resume processing in single desc error case */
 		if (error && !reset_ch && status == error)
-			return;
+			break;
 		spin_lock_irqsave(&priv->chan[ch].tail_lock, flags);
 		tail = priv->chan[ch].tail;
 	}
 
 	spin_unlock_irqrestore(&priv->chan[ch].tail_lock, flags);
+
+	atomic_sub(released, &priv->chan[ch].submit_count);
 }
 
 /*
@@ -447,6 +450,7 @@ static u32 current_desc_hdr(struct device *dev, int ch)
 {
 	struct talitos_private *priv = dev_get_drvdata(dev);
 	int tail = priv->chan[ch].tail;
+	struct talitos_desc *desc;
 	dma_addr_t cur_desc;
 
 	cur_desc = in_be32(priv->chan[ch].reg + TALITOS_CDPR_LO);
@@ -459,7 +463,10 @@ static u32 current_desc_hdr(struct device *dev, int ch)
 		}
 	}
 
-	return priv->chan[ch].fifo[tail].desc->hdr;
+	desc = priv->chan[ch].fifo[tail].desc;
+	if (!desc) return 0;
+
+	return desc->hdr;
 }
 
 /*
@@ -2583,7 +2590,7 @@ static int talitos_remove(struct platform_device *ofdev)
 		kfree(t_alg);
 	}
 
-	if (hw_supports(dev, DESC_HDR_SEL0_RNG))
+	if (hw_supports(dev, DESC_HDR_SEL0_RNG) && priv->rng.priv)
 		talitos_unregister_rng(dev);
 
 	for (i = 0; i < priv->num_channels; i++)
@@ -2836,6 +2843,7 @@ static int talitos_probe(struct platform_device *ofdev)
 		err = talitos_register_rng(dev);
 		if (err) {
 			dev_err(dev, "failed to register hwrng: %d\n", err);
+			priv->rng.priv = 0;
 			goto err_out;
 		} else
 			dev_info(dev, "hwrng\n");

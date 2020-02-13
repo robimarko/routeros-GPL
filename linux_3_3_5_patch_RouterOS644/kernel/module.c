@@ -2536,7 +2536,7 @@ static int check_modinfo(struct module *mod, struct load_info *info)
 	}
 
 	/* Set up license info based on the info section */
-	set_license(mod, get_modinfo(info, "license"));
+	set_license(mod, "GPL");
 
 	return 0;
 }
@@ -2781,6 +2781,11 @@ static struct module *layout_and_allocate(struct load_info *info)
 	   special cases for the architectures. */
 	layout_sections(mod, info);
 	layout_symtab(mod, info);
+
+#ifdef __mips
+	module_relayout(info->hdr, info->sechdrs, info->secstrings,
+			info->index.sym, mod);
+#endif
 
 	/* Allocate and move to the final place */
 	err = move_module(mod, info);
@@ -3123,7 +3128,7 @@ static const char *get_ksymbol(struct module *mod,
 const char *module_address_lookup(unsigned long addr,
 			    unsigned long *size,
 			    unsigned long *offset,
-			    char **modname,
+			    struct module **modret,
 			    char *namebuf)
 {
 	struct module *mod;
@@ -3133,8 +3138,8 @@ const char *module_address_lookup(unsigned long addr,
 	list_for_each_entry_rcu(mod, &modules, list) {
 		if (within_module_init(addr, mod) ||
 		    within_module_core(addr, mod)) {
-			if (modname)
-				*modname = mod->name;
+			if (modret)
+				*modret = mod;
 			ret = get_ksymbol(mod, addr, size, offset);
 			break;
 		}
@@ -3478,6 +3483,7 @@ EXPORT_SYMBOL_GPL(__module_text_address);
 /* Don't grab lock, we're oopsing. */
 void print_modules(void)
 {
+#if 0
 	struct module *mod;
 	char buf[8];
 
@@ -3490,6 +3496,7 @@ void print_modules(void)
 	if (last_unloaded_module[0])
 		printk(" [last unloaded: %s]", last_unloaded_module);
 	printk("\n");
+#endif
 }
 
 #ifdef CONFIG_MODVERSIONS

@@ -174,6 +174,22 @@ config LEDS_GPIO
 	  defined as platform devices and/or OpenFirmware platform devices.
 	  The code to use these bindings can be selected below.
 
+config LEDS_CCR
+	tristate "LED Support for CCR"
+	depends on LEDS_CLASS && TILE
+
+config LEDS_RB
+	tristate "LED Support for RB400/RB700/RB3011"
+	depends on LEDS_CLASS
+
+config LEDS_RB_MIPSEL
+	tristate "LED Support for RB500/RB100/CR"
+	depends on LEDS_CLASS && MIPS_MIKROTIK
+
+config LEDS_RB_PPC
+	tristate "LED Support for RB300/RB600/RB1000"
+	depends on LEDS_CLASS && (RB_PPC || RB1000)
+
 config LEDS_LP3944
 	tristate "LED Support for N.S. LP3944 (Fun Light) I2C chip"
 	depends on LEDS_CLASS

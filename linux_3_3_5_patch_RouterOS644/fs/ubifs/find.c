@@ -952,7 +952,7 @@ static int find_dirtiest_idx_leb(struct ubifs_info *c)
  * dirty space that can be used without overwriting index nodes that were in the
  * last index committed.
  */
-int ubifs_find_dirty_idx_leb(struct ubifs_info *c)
+int ubifs_find_dirty_idx_leb(struct ubifs_info *c, int lnum_to_skip)
 {
 	int err;
 
@@ -965,11 +965,11 @@ int ubifs_find_dirty_idx_leb(struct ubifs_info *c)
 	err = find_dirtiest_idx_leb(c);
 
 	/* Next try scanning the entire LPT */
-	if (err == -ENOSPC)
+	if (err == -ENOSPC || err == lnum_to_skip)
 		err = find_dirty_idx_leb(c);
 
 	/* Finally take any index LEBs awaiting trivial GC */
-	if (err == -ENOSPC)
+	if (err == -ENOSPC || err == lnum_to_skip)
 		err = get_idx_gc_leb(c);
 
 	ubifs_release_lprops(c);

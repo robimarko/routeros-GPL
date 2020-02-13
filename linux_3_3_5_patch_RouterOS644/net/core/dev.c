@@ -366,6 +366,29 @@ static inline void netdev_set_addr_lockdep_class(struct net_device *dev)
 }
 #endif
 
+void (*ipv4_routing_changed)(void);
+void (*fp_ptype_all_changed)(int);
+void (*fp_nf_changed)(int, int pf);
+void (*fp_xfrm_changed)(int);
+EXPORT_SYMBOL(ipv4_routing_changed);
+EXPORT_SYMBOL(fp_ptype_all_changed);
+EXPORT_SYMBOL(fp_nf_changed);
+EXPORT_SYMBOL(fp_xfrm_changed);
+
+DEFINE_PER_CPU(unsigned, per_cpu_netif_receive_depth);
+EXPORT_PER_CPU_SYMBOL(per_cpu_netif_receive_depth);
+
+void vlog_message(unsigned *, const char *, va_list);
+void kernel_log_message(unsigned *topics, const char *format, ...) {
+	void (*lm)(unsigned *, const char *, va_list) = symbol_get(vlog_message);
+	va_list aaa;
+	va_start(aaa, format);
+	if (lm) {
+		lm(topics, format, aaa);
+		symbol_put(vlog_message);
+	}
+}
+
 /*******************************************************************************
 
 		Protocol management and registration routines
@@ -414,6 +437,9 @@ void dev_add_pack(struct packet_type *pt)
 	struct list_head *head = ptype_head(pt);
 
 	spin_lock(&ptype_lock);
+	if (head == &ptype_all) {
+		if (fp_ptype_all_changed) fp_ptype_all_changed(1);
+	}
 	list_add_rcu(&pt->list, head);
 	spin_unlock(&ptype_lock);
 }
@@ -442,6 +468,9 @@ void __dev_remove_pack(struct packet_type *pt)
 	list_for_each_entry(pt1, head, list) {
 		if (pt == pt1) {
 			list_del_rcu(&pt->list);
+			if (head == &ptype_all) {
+				if (fp_ptype_all_changed) fp_ptype_all_changed(-1);
+			}
 			goto out;
 		}
 	}
@@ -1114,6 +1143,12 @@ int netdev_bonding_change(struct net_device *dev, unsigned long event)
 	return call_netdevice_notifiers(event, dev);
 }
 EXPORT_SYMBOL(netdev_bonding_change);
+
+void netdev_l2mtu_change(struct net_device *dev)
+{
+	call_netdevice_notifiers(NETDEV_CHANGEL2MTU, dev);
+}
+EXPORT_SYMBOL(netdev_l2mtu_change);
 
 /**
  *	dev_load 	- load a network module
@@ -2106,25 +2141,6 @@ static int dev_gso_segment(struct sk_buff *skb, netdev_features_t features)
 	return 0;
 }
 
-/*
- * Try to orphan skb early, right before transmission by the device.
- * We cannot orphan skb if tx timestamp is requested or the sk-reference
- * is needed on driver level for other reasons, e.g. see net/can/raw.c
- */
-static inline void skb_orphan_try(struct sk_buff *skb)
-{
-	struct sock *sk = skb->sk;
-
-	if (sk && !skb_shinfo(skb)->tx_flags) {
-		/* skb_tx_hash() wont be able to get sk.
-		 * We copy sk_hash into skb->rxhash
-		 */
-		if (!skb->rxhash)
-			skb->rxhash = sk->sk_hash;
-		skb_orphan(skb);
-	}
-}
-
 static bool can_checksum_protocol(netdev_features_t features, __be16 protocol)
 {
 	return ((features & NETIF_F_GEN_CSUM) ||
@@ -2149,10 +2165,11 @@ static netdev_features_t harmonize_features(struct sk_buff *skb,
 	return features;
 }
 
-netdev_features_t netif_skb_features(struct sk_buff *skb)
+netdev_features_t netif_skb_dev_features(struct sk_buff *skb,
+					 const struct net_device *dev)
 {
 	__be16 protocol = skb->protocol;
-	netdev_features_t features = skb->dev->features;
+	netdev_features_t features = dev->features;
 
 	if (protocol == htons(ETH_P_8021Q)) {
 		struct vlan_ethhdr *veh = (struct vlan_ethhdr *)skb->data;
@@ -2161,7 +2178,7 @@ netdev_features_t netif_skb_features(struct sk_buff *skb)
 		return harmonize_features(skb, protocol, features);
 	}
 
-	features &= (skb->dev->vlan_features | NETIF_F_HW_VLAN_TX);
+	features &= (dev->vlan_features | NETIF_F_HW_VLAN_TX);
 
 	if (protocol != htons(ETH_P_8021Q)) {
 		return harmonize_features(skb, protocol, features);
@@ -2171,7 +2188,7 @@ netdev_features_t netif_skb_features(struct sk_buff *skb)
 		return harmonize_features(skb, protocol, features);
 	}
 }
-EXPORT_SYMBOL(netif_skb_features);
+EXPORT_SYMBOL(netif_skb_dev_features);
 
 /*
  * Returns true if either:
@@ -2189,6 +2206,15 @@ static inline int skb_needs_linearize(struct sk_buff *skb,
 			(skb_shinfo(skb)->nr_frags &&
 				!(features & NETIF_F_SG)));
 }
+
+int (*rx_handler_hook)(struct sk_buff *);
+int (*tx_handler_hook)(struct sk_buff *);
+struct jump_label_key rx_handler_jump;
+struct jump_label_key tx_handler_jump;
+EXPORT_SYMBOL(rx_handler_hook);
+EXPORT_SYMBOL(tx_handler_hook);
+EXPORT_SYMBOL(rx_handler_jump);
+EXPORT_SYMBOL(tx_handler_jump);
 
 int dev_hard_start_xmit(struct sk_buff *skb, struct net_device *dev,
 			struct netdev_queue *txq)
@@ -2210,17 +2236,21 @@ int dev_hard_start_xmit(struct sk_buff *skb, struct net_device *dev,
 		if (!list_empty(&ptype_all))
 			dev_queue_xmit_nit(skb, dev);
 
-		skb_orphan_try(skb);
-
-		features = netif_skb_features(skb);
+		features = netif_skb_dev_features(skb, dev);
 
 		if (vlan_tx_tag_present(skb) &&
 		    !(features & NETIF_F_HW_VLAN_TX)) {
-			skb = __vlan_put_tag(skb, vlan_tx_tag_get(skb));
+			skb = __vlan_put_tag(skb, vlan_tx_tag_get(skb),
+					     ntohs(skb->vlan_proto));
 			if (unlikely(!skb))
 				goto out;
 
 			skb->vlan_tci = 0;
+		}
+
+		if (static_branch(&tx_handler_jump)) {
+			if (tx_handler_hook(skb))
+				goto out;
 		}
 
 		if (netif_needs_gso(skb, features)) {
@@ -2321,7 +2351,7 @@ u16 __skb_tx_hash(const struct net_device *dev, const struct sk_buff *skb,
 	if (skb->sk && skb->sk->sk_hash)
 		hash = skb->sk->sk_hash;
 	else
-		hash = (__force u16) skb->protocol ^ skb->rxhash;
+		hash = (__force u16) skb->protocol;
 	hash = jhash_1word(hash, hashrnd);
 
 	return (u16) (((u64) hash * qcount) >> 32) + qoffset;
@@ -2379,52 +2409,69 @@ static inline int get_xps_queue(struct net_device *dev, struct sk_buff *skb)
 #endif
 }
 
-static struct netdev_queue *dev_pick_tx(struct net_device *dev,
-					struct sk_buff *skb)
+u16 __dev_pick_tx(struct net_device *dev, struct sk_buff *skb)
 {
-	int queue_index;
-	const struct net_device_ops *ops = dev->netdev_ops;
-
-	if (dev->real_num_tx_queues == 1)
-		queue_index = 0;
-	else if (ops->ndo_select_queue) {
-		queue_index = ops->ndo_select_queue(dev, skb);
-		queue_index = dev_cap_txqueue(dev, queue_index);
-	} else {
 		struct sock *sk = skb->sk;
-		queue_index = sk_tx_queue_get(sk);
+	int queue_index = sk_tx_queue_get(sk);
 
 		if (queue_index < 0 || skb->ooo_okay ||
 		    queue_index >= dev->real_num_tx_queues) {
-			int old_index = queue_index;
+		int new_index = get_xps_queue(dev, skb);
+		if (new_index < 0)
+			new_index = skb_tx_hash(dev, skb);
 
-			queue_index = get_xps_queue(dev, skb);
-			if (queue_index < 0)
-				queue_index = skb_tx_hash(dev, skb);
-
-			if (queue_index != old_index && sk) {
+		if (queue_index != new_index && sk) {
 				struct dst_entry *dst =
 				    rcu_dereference_check(sk->sk_dst_cache, 1);
 
 				if (dst && skb_dst(skb) == dst)
-					sk_tx_queue_set(sk, queue_index);
+				sk_tx_queue_set(sk, new_index);
+
 			}
+
+		queue_index = new_index;
 		}
+
+	return queue_index;
+}
+EXPORT_SYMBOL(__dev_pick_tx);
+
+struct netdev_queue *dev_pick_tx(struct net_device *dev,
+				 struct sk_buff *skb)
+{
+	int queue_index = 0;
+
+	if (dev->real_num_tx_queues != 1) {
+		const struct net_device_ops *ops = dev->netdev_ops;
+		if (ops->ndo_select_queue)
+			queue_index = ops->ndo_select_queue(dev, skb);
+		else
+			queue_index = __dev_pick_tx(dev, skb);
+		queue_index = dev_cap_txqueue(dev, queue_index);
 	}
 
 	skb_set_queue_mapping(skb, queue_index);
 	return netdev_get_tx_queue(dev, queue_index);
 }
+EXPORT_SYMBOL(dev_pick_tx);
+
+struct ll_classify_result {
+    u32 classid;
+    struct Qdisc *qdisc;
+};
+void (*dev_lockless_classify)(struct sk_buff *skb, void *arg,
+			      struct ll_classify_result *res);
+EXPORT_SYMBOL(dev_lockless_classify);
 
 static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 				 struct net_device *dev,
-				 struct netdev_queue *txq)
+				 struct netdev_queue *txq,
+				 struct ll_classify_result res)
 {
 	spinlock_t *root_lock = qdisc_lock(q);
 	bool contended;
 	int rc;
 
-	qdisc_skb_cb(skb)->pkt_len = skb->len;
 	qdisc_calculate_pkt_len(skb, q);
 	/*
 	 * Heuristic to force contended enqueues to serialize on a
@@ -2452,11 +2499,11 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 
 		qdisc_bstats_update(q, skb);
 
-		if (sch_direct_xmit(skb, q, dev, txq, root_lock)) {
 			if (unlikely(contended)) {
 				spin_unlock(&q->busylock);
 				contended = false;
 			}
+		if (sch_direct_xmit(skb, q, dev, txq, root_lock)) {
 			__qdisc_run(q);
 		} else
 			qdisc_run_end(q);
@@ -2464,7 +2511,20 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 		rc = NET_XMIT_SUCCESS;
 	} else {
 		skb_dst_force(skb);
-		rc = q->enqueue(skb, q) & NET_XMIT_MASK;
+		if (res.classid) {
+			rc = q->ops->enqueue_classified(skb, q, res.classid);
+			if (rc) {
+				rc = NET_XMIT_SUCCESS | __NET_XMIT_BYPASS;
+			}
+			else {
+				rc = NET_XMIT_DROP;
+				kfree_skb(skb);
+			}
+		}
+		else {
+			rc = q->enqueue(skb, q);
+		}
+		rc &= NET_XMIT_MASK;
 		if (qdisc_run_begin(q)) {
 			if (unlikely(contended)) {
 				spin_unlock(&q->busylock);
@@ -2541,9 +2601,18 @@ int dev_queue_xmit(struct sk_buff *skb)
 #endif
 	trace_net_dev_queue(skb);
 	if (q->enqueue) {
-		rc = __dev_xmit_skb(skb, q, dev, txq);
+		struct ll_classify_result res = { 0 };
+		void *arg = rcu_dereference_bh(q->lockless_classify_arg);
+		if (arg) {
+			dev_lockless_classify(skb, arg, &res);
+			if (!res.classid) {
+				goto xmit;
+			}
+		}
+		rc = __dev_xmit_skb(skb, q, dev, txq, res);
 		goto out;
 	}
+xmit:
 
 	/* The device has no queue. Common case for software devices:
 	   loopback, all the sorts of tunnels...
@@ -2576,6 +2645,13 @@ int dev_queue_xmit(struct sk_buff *skb)
 					goto out;
 				}
 			}
+			else {
+				this_cpu_ptr(dev->fp.stats)->queue_stopped_drop += 1;
+				kfree_skb(skb);
+				rc = NET_XMIT_DROP;
+				HARD_TX_UNLOCK(dev, txq);
+				goto out;
+			}
 			HARD_TX_UNLOCK(dev, txq);
 			if (net_ratelimit())
 				printk(KERN_CRIT "Virtual device %s asks to "
@@ -2585,9 +2661,13 @@ int dev_queue_xmit(struct sk_buff *skb)
 			 * unfortunately
 			 */
 recursion_alert:
-			if (net_ratelimit())
+			if (net_ratelimit()) {
+				static unsigned topics[] = { 61, 2, 0 }; // intrerface,warning
+				kernel_log_message(topics, "*%08x: tx loop on interface (1)", dev->ifindex);
 				printk(KERN_CRIT "Dead loop on virtual device "
 				       "%s, fix it urgently!\n", dev->name);
+				WARN_ON(1);
+			}
 		}
 	}
 
@@ -3158,9 +3238,16 @@ void netdev_rx_handler_unregister(struct net_device *dev)
 
 	ASSERT_RTNL();
 	RCU_INIT_POINTER(dev->rx_handler, NULL);
+	/* a reader seeing a non NULL rx_handler in a rcu_read_lock()
+	 * section has a guarantee to see a non NULL rx_handler_data
+	 * as well.
+	 */
+	synchronize_net();
 	RCU_INIT_POINTER(dev->rx_handler_data, NULL);
 }
 EXPORT_SYMBOL_GPL(netdev_rx_handler_unregister);
+DEFINE_PER_CPU(struct net_device *, per_cpu_last_rx_dev);
+EXPORT_PER_CPU_SYMBOL(per_cpu_last_rx_dev);
 
 static int __netif_receive_skb(struct sk_buff *skb)
 {
@@ -3180,8 +3267,6 @@ static int __netif_receive_skb(struct sk_buff *skb)
 	if (netpoll_receive_skb(skb))
 		return NET_RX_DROP;
 
-	if (!skb->skb_iif)
-		skb->skb_iif = skb->dev->ifindex;
 	orig_dev = skb->dev;
 
 	skb_reset_network_header(skb);
@@ -3193,12 +3278,12 @@ static int __netif_receive_skb(struct sk_buff *skb)
 	rcu_read_lock();
 
 another_round:
+	skb->skb_iif = skb->dev->ifindex;
 
 	__this_cpu_inc(softnet_data.processed);
 
-	if (skb->protocol == cpu_to_be16(ETH_P_8021Q)) {
-		skb = vlan_untag(skb);
-		if (unlikely(!skb))
+	if (static_branch(&rx_handler_jump)) {
+		if (rx_handler_hook(skb))
 			goto out;
 	}
 
@@ -3210,6 +3295,11 @@ another_round:
 #endif
 
 	list_for_each_entry_rcu(ptype, &ptype_all, list) {
+		if (orig_dev == __get_cpu_var(per_cpu_last_rx_dev)) {
+			__get_cpu_var(per_cpu_last_rx_dev) = NULL;
+			break;
+		}
+
 		if (!ptype->dev || ptype->dev == skb->dev) {
 			if (pt_prev)
 				ret = deliver_skb(skb, pt_prev, orig_dev);
@@ -3225,7 +3315,7 @@ ncls:
 #endif
 
 	rx_handler = rcu_dereference(skb->dev->rx_handler);
-	if (vlan_tx_tag_present(skb)) {
+	if (vlan_tx_tag_present(skb) || ANY_VLAN_PROTO_N(skb->protocol)) {
 		if (pt_prev) {
 			ret = deliver_skb(skb, pt_prev, orig_dev);
 			pt_prev = NULL;
@@ -3273,7 +3363,7 @@ ncls:
 	if (pt_prev) {
 		ret = pt_prev->func(skb, skb->dev, pt_prev, orig_dev);
 	} else {
-		atomic_long_inc(&skb->dev->rx_dropped);
+//		atomic_long_inc(&skb->dev->rx_dropped);
 		kfree_skb(skb);
 		/* Jamal, now you will not able to escape explaining
 		 * me how you were going to use this. :-)
@@ -3636,6 +3726,10 @@ struct sk_buff *napi_frags_skb(struct napi_struct *napi)
 	if (skb_gro_header_hard(skb, hlen)) {
 		eth = skb_gro_header_slow(skb, hlen, off);
 		if (unlikely(!eth)) {
+			if (net_ratelimit())
+				pr_warning("%s: dropping impossible skb from %s\n",
+					   __func__, napi->dev->name);
+
 			napi_reuse_skb(napi, skb);
 			skb = NULL;
 			goto out;
@@ -4380,64 +4474,231 @@ static int __init dev_proc_init(void)
 #endif	/* CONFIG_PROC_FS */
 
 
-/**
- *	netdev_set_master	-	set up master pointer
- *	@slave: slave device
- *	@master: new master device
- *
- *	Changes the master device of the slave. Pass %NULL to break the
- *	bonding. The caller must hold the RTNL semaphore. On a failure
- *	a negative errno code is returned. On success the reference counts
- *	are adjusted and the function returns zero.
- */
-int netdev_set_master(struct net_device *slave, struct net_device *master)
+struct netdev_upper {
+	struct net_device *dev;
+	bool master;
+	struct list_head list;
+	struct rcu_head rcu;
+	struct list_head search_list;
+};
+
+static void __append_search_uppers(struct list_head *search_list,
+				   struct net_device *dev)
 {
-	struct net_device *old = slave->master;
+	struct netdev_upper *upper;
 
-	ASSERT_RTNL();
-
-	if (master) {
-		if (old)
-			return -EBUSY;
-		dev_hold(master);
+	list_for_each_entry(upper, &dev->upper_dev_list, list) {
+		/* check if this upper is not already in search list */
+		if (list_empty(&upper->search_list))
+			list_add_tail(&upper->search_list, search_list);
 	}
-
-	slave->master = master;
-
-	if (old)
-		dev_put(old);
-	return 0;
 }
-EXPORT_SYMBOL(netdev_set_master);
+
+static bool __netdev_search_upper_dev(struct net_device *dev,
+				      struct net_device *upper_dev)
+{
+	LIST_HEAD(search_list);
+	struct netdev_upper *upper;
+	struct netdev_upper *tmp;
+	bool ret = false;
+
+	__append_search_uppers(&search_list, dev);
+	list_for_each_entry(upper, &search_list, search_list) {
+		if (upper->dev == upper_dev) {
+			ret = true;
+			break;
+		}
+		__append_search_uppers(&search_list, upper->dev);
+	}
+	list_for_each_entry_safe(upper, tmp, &search_list, search_list)
+		INIT_LIST_HEAD(&upper->search_list);
+	return ret;
+}
+
+static struct netdev_upper *__netdev_find_upper(struct net_device *dev,
+						struct net_device *upper_dev)
+{
+	struct netdev_upper *upper;
+
+	list_for_each_entry(upper, &dev->upper_dev_list, list) {
+		if (upper->dev == upper_dev)
+			return upper;
+	}
+	return NULL;
+}
 
 /**
- *	netdev_set_bond_master	-	set up bonding master/slave pair
- *	@slave: slave device
- *	@master: new master device
+ * netdev_has_upper_dev - Check if device is linked to an upper device
+ * @dev: device
+ * @upper_dev: upper device to check
  *
- *	Changes the master device of the slave. Pass %NULL to break the
- *	bonding. The caller must hold the RTNL semaphore. On a failure
- *	a negative errno code is returned. On success %RTM_NEWLINK is sent
- *	to the routing socket and the function returns zero.
+ * Find out if a device is linked to specified upper device and return true
+ * in case it is. Note that this checks only immediate upper device,
+ * not through a complete stack of devices. The caller must hold the RTNL lock.
  */
-int netdev_set_bond_master(struct net_device *slave, struct net_device *master)
+bool netdev_has_upper_dev(struct net_device *dev,
+			  struct net_device *upper_dev)
 {
-	int err;
+	ASSERT_RTNL();
+
+	return __netdev_find_upper(dev, upper_dev);
+}
+EXPORT_SYMBOL(netdev_has_upper_dev);
+
+/**
+ * netdev_has_any_upper_dev - Check if device is linked to some device
+ * @dev: device
+ *
+ * Find out if a device is linked to an upper device and return true in case
+ * it is. The caller must hold the RTNL lock.
+ */
+bool netdev_has_any_upper_dev(struct net_device *dev)
+{
+	ASSERT_RTNL();
+
+	return !list_empty(&dev->upper_dev_list);
+}
+EXPORT_SYMBOL(netdev_has_any_upper_dev);
+
+/**
+ * netdev_master_upper_dev_get - Get master upper device
+ * @dev: device
+ *
+ * Find a master upper device and return pointer to it or NULL in case
+ * it's not there. The caller must hold the RTNL lock.
+ */
+struct net_device *netdev_master_upper_dev_get(struct net_device *dev)
+{
+	struct netdev_upper *upper;
 
 	ASSERT_RTNL();
 
-	err = netdev_set_master(slave, master);
-	if (err)
-		return err;
-	if (master)
-		slave->flags |= IFF_SLAVE;
-	else
-		slave->flags &= ~IFF_SLAVE;
+	if (list_empty(&dev->upper_dev_list))
+		return NULL;
 
-	rtmsg_ifinfo(RTM_NEWLINK, slave, IFF_SLAVE);
+	upper = list_first_entry(&dev->upper_dev_list,
+				 struct netdev_upper, list);
+	if (likely(upper->master))
+		return upper->dev;
+	return NULL;
+}
+EXPORT_SYMBOL(netdev_master_upper_dev_get);
+
+/**
+ * netdev_master_upper_dev_get_rcu - Get master upper device
+ * @dev: device
+ *
+ * Find a master upper device and return pointer to it or NULL in case
+ * it's not there. The caller must hold the RCU read lock.
+ */
+struct net_device *netdev_master_upper_dev_get_rcu(struct net_device *dev)
+{
+	struct netdev_upper *upper;
+
+	upper = list_first_or_null_rcu(&dev->upper_dev_list,
+				       struct netdev_upper, list);
+	if (upper && likely(upper->master))
+		return upper->dev;
+	return NULL;
+}
+EXPORT_SYMBOL(netdev_master_upper_dev_get_rcu);
+
+static int __netdev_upper_dev_link(struct net_device *dev,
+				   struct net_device *upper_dev, bool master)
+{
+	struct netdev_upper *upper;
+
+	ASSERT_RTNL();
+
+	if (dev == upper_dev)
+		return -EBUSY;
+
+	/* To prevent loops, check if dev is not upper device to upper_dev. */
+	if (__netdev_search_upper_dev(upper_dev, dev))
+		return -EBUSY;
+
+	if (__netdev_find_upper(dev, upper_dev))
+		return -EEXIST;
+
+	if (master && netdev_master_upper_dev_get(dev))
+		return -EBUSY;
+
+	upper = kmalloc(sizeof(*upper), GFP_KERNEL);
+	if (!upper)
+		return -ENOMEM;
+
+	upper->dev = upper_dev;
+	upper->master = master;
+	INIT_LIST_HEAD(&upper->search_list);
+
+	/* Ensure that master upper link is always the first item in list. */
+	if (master)
+		list_add_rcu(&upper->list, &dev->upper_dev_list);
+	else
+		list_add_tail_rcu(&upper->list, &dev->upper_dev_list);
+	dev_hold(upper_dev);
+
 	return 0;
 }
-EXPORT_SYMBOL(netdev_set_bond_master);
+
+/**
+ * netdev_upper_dev_link - Add a link to the upper device
+ * @dev: device
+ * @upper_dev: new upper device
+ *
+ * Adds a link to device which is upper to this one. The caller must hold
+ * the RTNL lock. On a failure a negative errno code is returned.
+ * On success the reference counts are adjusted and the function
+ * returns zero.
+ */
+int netdev_upper_dev_link(struct net_device *dev,
+			  struct net_device *upper_dev)
+{
+	return __netdev_upper_dev_link(dev, upper_dev, false);
+}
+EXPORT_SYMBOL(netdev_upper_dev_link);
+
+/**
+ * netdev_master_upper_dev_link - Add a master link to the upper device
+ * @dev: device
+ * @upper_dev: new upper device
+ *
+ * Adds a link to device which is upper to this one. In this case, only
+ * one master upper device can be linked, although other non-master devices
+ * might be linked as well. The caller must hold the RTNL lock.
+ * On a failure a negative errno code is returned. On success the reference
+ * counts are adjusted and the function returns zero.
+ */
+int netdev_master_upper_dev_link(struct net_device *dev,
+				 struct net_device *upper_dev)
+{
+	return __netdev_upper_dev_link(dev, upper_dev, true);
+}
+EXPORT_SYMBOL(netdev_master_upper_dev_link);
+
+/**
+ * netdev_upper_dev_unlink - Removes a link to upper device
+ * @dev: device
+ * @upper_dev: new upper device
+ *
+ * Removes a link to device which is upper to this one. The caller must hold
+ * the RTNL lock.
+ */
+void netdev_upper_dev_unlink(struct net_device *dev,
+			     struct net_device *upper_dev)
+{
+	struct netdev_upper *upper;
+
+	ASSERT_RTNL();
+
+	upper = __netdev_find_upper(dev, upper_dev);
+	if (!upper)
+		return;
+	list_del_rcu(&upper->list);
+	dev_put(upper_dev);
+	kfree_rcu(upper, rcu);
+}
+EXPORT_SYMBOL(netdev_upper_dev_unlink);
 
 static void dev_change_rx_flags(struct net_device *dev, int flags)
 {
@@ -4645,11 +4906,16 @@ int __dev_change_flags(struct net_device *dev, unsigned int flags)
 	 *	Set the flags on our device.
 	 */
 
-	dev->flags = (flags & (IFF_DEBUG | IFF_NOTRAILERS | IFF_NOARP |
+	dev->flags = (flags & (IFF_DEBUG | IFF_NOTRAILERS | IFF_NOARP | IFF_NOARP4 |
 			       IFF_DYNAMIC | IFF_MULTICAST | IFF_PORTSEL |
 			       IFF_AUTOMEDIA)) |
 		     (dev->flags & (IFF_UP | IFF_VOLATILE | IFF_PROMISC |
 				    IFF_ALLMULTI));
+
+	/* make IPv4 flush all neighbors & route cache */
+	if ((old_flags ^ flags) & IFF_NOARP4)
+		call_netdevice_notifiers(NETDEV_CHANGEADDR, dev);
+	    
 
 	/*
 	 *	Load in the correct multicast list now the flags have changed.
@@ -4862,6 +5128,10 @@ static int dev_ifsioc_locked(struct net *net, struct ifreq *ifr, unsigned int cm
 		ifr->ifr_qlen = dev->tx_queue_len;
 		return 0;
 
+	case SIOCGDEVID:
+		ifr->ifr_ifru.ifru_ivalue = dev->devid;
+		return 0;
+
 	default:
 		/* dev_ioctl() should ensure this case
 		 * is never reached
@@ -4898,6 +5168,15 @@ static int dev_ifsioc(struct net *net, struct ifreq *ifr, unsigned int cmd)
 
 	case SIOCSIFMTU:	/* Set the MTU of a device */
 		return dev_set_mtu(dev, ifr->ifr_mtu);
+
+	case SIOCSIFL2MTU:	/* Set the L2MTU of a device */
+		if (!netif_device_present(dev)) return -ENODEV;
+		if (!ops->ndo_change_l2mtu) return -EOPNOTSUPP;
+		err = ops->ndo_change_l2mtu(dev, ifr->ifr_mtu);
+		if (err) return err;
+		if (dev->flags & IFF_UP)
+			call_netdevice_notifiers(NETDEV_CHANGEL2MTU, dev);
+		return 0;
 
 	case SIOCSIFHWADDR:
 		return dev_set_mac_address(dev, &ifr->ifr_hwaddr);
@@ -4938,6 +5217,14 @@ static int dev_ifsioc(struct net *net, struct ifreq *ifr, unsigned int cmd)
 		if (ifr->ifr_qlen < 0)
 			return -EINVAL;
 		dev->tx_queue_len = ifr->ifr_qlen;
+		return 0;
+
+	case SIOCSDEVID:
+		dev->devid = ifr->ifr_ifru.ifru_ivalue;
+		return 0;
+
+	case SIOCGDEVID:
+		ifr->ifr_ifru.ifru_ivalue = dev->devid;
 		return 0;
 
 	case SIOCSIFNAME:
@@ -5048,6 +5335,7 @@ int dev_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 	case SIOCGIFMAP:
 	case SIOCGIFINDEX:
 	case SIOCGIFTXQLEN:
+	case SIOCGDEVID:
 		dev_load(net, ifr.ifr_name);
 		rcu_read_lock();
 		ret = dev_ifsioc_locked(net, &ifr, cmd);
@@ -5108,6 +5396,7 @@ int dev_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 	case SIOCSIFFLAGS:
 	case SIOCSIFMETRIC:
 	case SIOCSIFMTU:
+	case SIOCSIFL2MTU:
 	case SIOCSIFMAP:
 	case SIOCSIFHWADDR:
 	case SIOCSIFSLAVE:
@@ -5116,6 +5405,7 @@ int dev_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 	case SIOCSIFHWBROADCAST:
 	case SIOCSIFTXQLEN:
 	case SIOCSMIIREG:
+	case SIOCSDEVID:
 	case SIOCBONDENSLAVE:
 	case SIOCBONDRELEASE:
 	case SIOCBONDSETHWADDR:
@@ -5253,8 +5543,8 @@ static void rollback_registered_many(struct list_head *head)
 		if (dev->netdev_ops->ndo_uninit)
 			dev->netdev_ops->ndo_uninit(dev);
 
-		/* Notifier chain MUST detach us from master device. */
-		WARN_ON(dev->master);
+		/* Notifier chain MUST detach us all upper devices. */
+		WARN_ON(netdev_has_any_upper_dev(dev));
 
 		/* Remove entries from kobject tree */
 		netdev_unregister_kobject(dev);
@@ -5729,12 +6019,12 @@ static void netdev_wait_allrefs(struct net_device *dev)
 			rebroadcast_time = jiffies;
 		}
 
-		msleep(250);
+		msleep(10);
 
 		refcnt = netdev_refcnt_read(dev);
 
 		if (time_after(jiffies, warning_time + 10 * HZ)) {
-			printk(KERN_EMERG "unregister_netdevice: "
+			printk(KERN_NOTICE "unregister_netdevice: "
 			       "waiting for %s to become free. Usage "
 			       "count = %d\n",
 			       dev->name, refcnt);
@@ -5767,20 +6057,15 @@ static void netdev_wait_allrefs(struct net_device *dev)
  * We must not return until all unregister events added during
  * the interval the lock was held have been completed.
  */
-void netdev_run_todo(void)
-{
+
+static void __netdev_run_todo(void) {
 	struct list_head list;
+//	printk("netdev_run_todo_work: %ld\n", jiffies);
 
 	/* Snapshot list, allow later requests */
 	list_replace_init(&net_todo_list, &list);
 
 	__rtnl_unlock();
-
-	/* Wait for rcu callbacks to finish before attempting to drain
-	 * the device list.  This usually avoids a 250ms wait.
-	 */
-	if (!list_empty(&list))
-		rcu_barrier();
 
 	while (!list_empty(&list)) {
 		struct net_device *dev
@@ -5812,6 +6097,33 @@ void netdev_run_todo(void)
 		/* Free network device */
 		kobject_put(&dev->dev.kobj);
 	}
+}
+
+static void netdev_run_todo_work(struct work_struct *w) {
+	rtnl_lock();
+	__netdev_run_todo();
+}
+
+static struct work_struct run_todo_work;
+
+void netdev_run_todo(void)
+{
+	struct net_device *dev;
+
+	if (list_empty(&net_todo_list)) {
+		__rtnl_unlock();
+		return;
+	}
+
+	list_for_each_entry(dev, &net_todo_list, todo_list) {
+	    if (dev->destructor != free_netdev) {
+		__netdev_run_todo();
+		return;
+	    }
+	}
+
+	schedule_work(&run_todo_work);
+	__rtnl_unlock();
 }
 
 /* Convert net_device_stats to rtnl_link_stats64.  They have the same
@@ -5952,6 +6264,7 @@ struct net_device *alloc_netdev_mqs(int sizeof_priv, const char *name,
 	INIT_LIST_HEAD(&dev->napi_list);
 	INIT_LIST_HEAD(&dev->unreg_list);
 	INIT_LIST_HEAD(&dev->link_watch_list);
+	INIT_LIST_HEAD(&dev->upper_dev_list);
 	dev->priv_flags = IFF_XMIT_DST_RELEASE;
 	setup(dev);
 
@@ -6515,6 +6828,8 @@ static int __init net_dev_init(void)
 	int i, rc = -ENOMEM;
 
 	BUG_ON(!dev_boot_phase);
+
+	INIT_WORK(&run_todo_work, netdev_run_todo_work);
 
 	if (dev_proc_init())
 		goto out;

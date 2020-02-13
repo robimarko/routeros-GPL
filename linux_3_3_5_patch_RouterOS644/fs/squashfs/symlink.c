@@ -47,7 +47,6 @@ static int squashfs_symlink_readpage(struct file *file, struct page *page)
 {
 	struct inode *inode = page->mapping->host;
 	struct super_block *sb = inode->i_sb;
-	struct squashfs_sb_info *msblk = sb->s_fs_info;
 	int index = page->index << PAGE_CACHE_SHIFT;
 	u64 block = squashfs_i(inode)->start;
 	int offset = squashfs_i(inode)->offset;
@@ -81,7 +80,7 @@ static int squashfs_symlink_readpage(struct file *file, struct page *page)
 	 * blocks, we may need to call squashfs_cache_get multiple times.
 	 */
 	for (bytes = 0; bytes < length; offset = 0, bytes += copied) {
-		entry = squashfs_cache_get(sb, msblk->block_cache, block, 0);
+		entry = squashfs_cache_get(sb, block_cache, block, 0);
 		if (entry->error) {
 			ERROR("Unable to read symlink [%llx:%x]\n",
 				squashfs_i(inode)->start,

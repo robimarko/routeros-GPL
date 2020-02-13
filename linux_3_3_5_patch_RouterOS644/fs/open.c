@@ -701,7 +701,10 @@ static struct file *__dentry_open(struct dentry *dentry, struct vfsmount *mnt,
 
 	f->f_flags &= ~(O_CREAT | O_EXCL | O_NOCTTY | O_TRUNC);
 
+#if 0
+	/* disable readahead - it's no good on flash */
 	file_ra_state_init(&f->f_ra, f->f_mapping->host->i_mapping);
+#endif
 
 	/* NB: we're sure to have correct a_ops only after f_op->open */
 	if (f->f_flags & O_DIRECT) {

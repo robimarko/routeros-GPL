@@ -489,4 +489,12 @@ config GPIO_TPS65910
 	help
 	  Select this option to enable GPIO driver for the TPS65910
 	  chip family.
+
+config GPIO_MIKROTIK_SPI
+	bool "GPIO using shift registers for RouterBoards"
+	depends on SPI_MASTER
+	depends on ARM
+	help
+	  SPI driver for RouterBoards that extends number of GPIO pins
+	  using serial-in/parallel-out and parallel-in/serial-out shift registers.
 endif

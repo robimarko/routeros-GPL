@@ -19,6 +19,7 @@ struct hw_pci {
 	int		domain;
 #endif
 	struct list_head buses;
+	void	**private_data;
 	int		nr_controllers;
 	int		(*setup)(int nr, struct pci_sys_data *);
 	struct pci_bus *(*scan)(int nr, struct pci_sys_data *);

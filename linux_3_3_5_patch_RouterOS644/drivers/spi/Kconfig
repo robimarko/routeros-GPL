@@ -248,6 +248,12 @@ config SPI_ORION
 	help
 	  This enables using the SPI master controller on the Orion chips.
 
+config SPI_FEROCEON
+	tristate "Feroceon SPI master (EXPERIMENTAL)"
+	depends on PLAT_ORION && EXPERIMENTAL
+	help
+	  This enables using the SPI master controller on the Feroceon chips.
+
 config SPI_PL022
 	tristate "ARM AMBA PL022 SSP controller"
 	depends on ARM_AMBA
@@ -275,6 +281,18 @@ config SPI_PXA2XX
 	  This enables using a PXA2xx or Sodaville SSP port as a SPI master
 	  controller. The driver can be configured to use any SSP port and
 	  additional documentation can be found a Documentation/spi/pxa2xx.
+
+config SPI_RB400
+	bool "RB400 SPI master"
+	depends on SPI_MASTER && MIPS_MIKROTIK
+
+config SPI_RB_PPC
+	bool "RB powerpc SPI master"
+	depends on SPI_MASTER && RB1100
+
+config SPI_TILERA
+	bool "Tilera SPI master"
+	depends on SPI_MASTER && TILE_GXIO_GPIO
 
 config SPI_PXA2XX_PCI
 	def_bool SPI_PXA2XX && X86_32 && PCI

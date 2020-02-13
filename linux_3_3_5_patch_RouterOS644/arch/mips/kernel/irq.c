@@ -111,7 +111,7 @@ void __init init_IRQ(void)
 #endif
 }
 
-#ifdef DEBUG_STACKOVERFLOW
+#ifdef CONFIG_DEBUG_STACKOVERFLOW
 static inline void check_stack_overflow(void)
 {
 	unsigned long sp;
@@ -123,10 +123,15 @@ static inline void check_stack_overflow(void)
 	 * Check for stack overflow: is there less than STACK_WARN free?
 	 * STACK_WARN is defined as 1/8 of THREAD_SIZE by default.
 	 */
-	if (unlikely(sp < (sizeof(struct thread_info) + STACK_WARN))) {
+	if (unlikely(sp < (sizeof(struct thread_info) + 2048))) {
+		static atomic_t cnt;
+		if (atomic_inc_return(&cnt) != 1) {
+			return;
+		}
 		printk("do_IRQ: stack overflow: %ld\n",
 		       sp - sizeof(struct thread_info));
 		dump_stack();
+		oops_exit(); // added to save backtrace into panic buffer immediately, otherwise this is likely to get lost
 	}
 }
 #else

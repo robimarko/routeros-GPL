@@ -36,6 +36,46 @@
 #include <asm/irq.h>
 #include <asm/uaccess.h>
 
+struct mdio_board_entry {
+	struct list_head	list;
+	struct mdio_board_info	board_info;
+};
+
+LIST_HEAD(__mdio_board_list);
+EXPORT_SYMBOL_GPL(__mdio_board_list);
+
+DEFINE_MUTEX(__mdio_board_lock);
+EXPORT_SYMBOL_GPL(__mdio_board_lock);
+
+/**
+ * mdio_register_board_info - register PHY devices for a given board
+ * @info: array of chip descriptors
+ * @n: how many descriptors are provided
+ * Context: can sleep
+ *
+ * The board info passed can safely be __initdata ... but be careful of
+ * any embedded pointers (platform_data, etc), they're copied as-is.
+ */
+int mdiobus_register_board_info(struct mdio_board_info const *info, int n)
+{
+	struct mdio_board_entry *be;
+	int i;
+
+	be = kzalloc(n * sizeof(*be), GFP_KERNEL);
+	if (!be)
+		return -ENOMEM;
+
+	for (i = 0; i < n; i++, be++, info++) {
+		memcpy(&be->board_info, info, sizeof(*info));
+		mutex_lock(&__mdio_board_lock);
+		list_add_tail(&be->list, &__mdio_board_list);
+		mutex_unlock(&__mdio_board_lock);
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(mdiobus_register_board_info);
+
 /**
  * mdiobus_alloc_size - allocate a mii_bus structure
  * @size: extra amount of memory to allocate for private storage.
@@ -192,14 +232,31 @@ void mdiobus_free(struct mii_bus *bus)
 }
 EXPORT_SYMBOL(mdiobus_free);
 
+static void mdiobus_setup_phydev_from_boardinfo(struct mii_bus *bus,
+						struct phy_device *phydev,
+						struct mdio_board_info *bi)
+{
+	if (strcmp(bus->id, bi->bus_id) ||
+	    bi->phy_addr != phydev->addr)
+		return;
+
+	phydev->dev.platform_data = (void *) bi->platform_data;
+}
+
 struct phy_device *mdiobus_scan(struct mii_bus *bus, int addr)
 {
 	struct phy_device *phydev;
+	struct mdio_board_entry *be;
 	int err;
 
 	phydev = get_phy_device(bus, addr);
 	if (IS_ERR(phydev) || phydev == NULL)
 		return phydev;
+
+	mutex_lock(&__mdio_board_lock);
+	list_for_each_entry(be, &__mdio_board_list, list)
+	    mdiobus_setup_phydev_from_boardinfo(bus, phydev, &be->board_info);
+	mutex_unlock(&__mdio_board_lock);
 
 	err = phy_device_register(phydev);
 	if (err) {

@@ -145,7 +145,7 @@ struct nand_flash_dev nand_flash_ids[] = {
 	{"NAND 64GiB 3,3V 8-bit",	0x3E, 0, 65536, 0, LP_OPTIONS},
 	{"NAND 64GiB 1,8V 16-bit",	0x2E, 0, 65536, 0, LP_OPTIONS16},
 	{"NAND 64GiB 3,3V 16-bit",	0x4E, 0, 65536, 0, LP_OPTIONS16},
-
+#if 0
 	/*
 	 * Renesas AND 1 Gigabit. Those chips do not support extended id and
 	 * have a strange page/block layout !  The chosen minimum erasesize is
@@ -160,7 +160,7 @@ struct nand_flash_dev nand_flash_ids[] = {
 	 NAND_IS_AND | NAND_NO_AUTOINCR |NAND_NO_READRDY | NAND_4PAGE_ARRAY |
 	 BBT_AUTO_REFRESH
 	},
-
+#endif
 	{NULL,}
 };
 
@@ -178,6 +178,8 @@ struct nand_manufacturers nand_manuf_ids[] = {
 	{NAND_MFR_MICRON, "Micron"},
 	{NAND_MFR_AMD, "AMD"},
 	{NAND_MFR_MACRONIX, "Macronix"},
+	{NAND_MFR_WINBOND, "Winbond"},
+	{NAND_MFR_ATO, "ATO"},
 	{0x0, "Unknown"}
 };
 

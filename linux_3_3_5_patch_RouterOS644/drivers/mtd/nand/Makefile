@@ -3,7 +3,7 @@
 #
 
 obj-$(CONFIG_MTD_NAND)			+= nand.o
-obj-$(CONFIG_MTD_NAND_ECC)		+= nand_ecc.o
+obj-$(CONFIG_MTD_NAND_ECC)		+= nand_ecc.o nand_ecc_mlc.o
 obj-$(CONFIG_MTD_NAND_BCH)		+= nand_bch.o
 obj-$(CONFIG_MTD_NAND_IDS)		+= nand_ids.o
 obj-$(CONFIG_MTD_SM_COMMON) 		+= sm_common.o
@@ -34,6 +34,20 @@ obj-$(CONFIG_MTD_NAND_PXA3xx)		+= pxa3xx_nand.o
 obj-$(CONFIG_MTD_NAND_TMIO)		+= tmio_nand.o
 obj-$(CONFIG_MTD_NAND_PLATFORM)		+= plat_nand.o
 obj-$(CONFIG_MTD_ALAUDA)		+= alauda.o
+obj-$(CONFIG_MTD_NAND_RB)		+= rb.o
+obj-$(CONFIG_MTD_NAND_RB500)		+= rb500nand.o
+obj-$(CONFIG_MTD_NAND_RB400)		+= rb400_nand.o
+obj-$(CONFIG_MTD_NAND_RB400)		+= rb700_nand.o
+obj-$(CONFIG_MTD_NAND_RB400)		+= rb750g_nand.o
+obj-$(CONFIG_MTD_NAND_RB400)		+= ar9330_nand.o
+obj-$(CONFIG_MTD_NAND_RB400)		+= ar9344_nand.o
+obj-$(CONFIG_MTD_NAND_RB400)		+= ar9342_nand.o
+obj-$(CONFIG_MTD_NAND_RB400)		+= music_nand.o
+obj-$(CONFIG_MTD_NAND_RB400)		+= qca9531_nand.o
+obj-$(CONFIG_MTD_NAND_TILERA)		+= tilera_nand.o
+obj-$(CONFIG_MTD_NAND_RB_FCM)		+= rbfcm_nand.o
+obj-$(CONFIG_MTD_NAND_RB1200)		+= rb1200_nand.o
+obj-$(CONFIG_MTD_NAND_RB_PPC)		+= rb_ppc.o
 obj-$(CONFIG_MTD_NAND_PASEMI)		+= pasemi_nand.o
 obj-$(CONFIG_MTD_NAND_ORION)		+= orion_nand.o
 obj-$(CONFIG_MTD_NAND_FSL_ELBC)		+= fsl_elbc_nand.o
@@ -49,5 +63,6 @@ obj-$(CONFIG_MTD_NAND_MPC5121_NFC)	+= mpc5121_nfc.o
 obj-$(CONFIG_MTD_NAND_RICOH)		+= r852.o
 obj-$(CONFIG_MTD_NAND_JZ4740)		+= jz4740_nand.o
 obj-$(CONFIG_MTD_NAND_GPMI_NAND)	+= gpmi-nand/
+obj-$(CONFIG_MTD_NAND_AL)		+= al/
 
 nand-objs := nand_base.o nand_bbt.o

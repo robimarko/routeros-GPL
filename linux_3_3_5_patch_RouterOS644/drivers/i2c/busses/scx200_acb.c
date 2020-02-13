@@ -230,9 +230,23 @@ static void scx200_acb_poll(struct scx200_acb_iface *iface)
 {
 	u8 status;
 	unsigned long timeout;
+	unsigned loops = 0;
 
 	timeout = jiffies + POLL_TIMEOUT;
 	while (1) {
+		/*
+		 * LM87 chip will reset its serial bus interface,
+		 * if SMBCLK will be low for >= 25ms.
+		 * if yield() takes more than 25ms, then our session is lost.
+		 * Up to 112 loops can happen under regular LM87 usage.
+		 */
+		if (loops > 250) {
+			/* something is wrong or it is not LM87 */
+			cpu_relax();
+			cond_resched();
+		}
+		++loops;
+
 		status = inb(ACBST);
 
 		/* Reset the status register to avoid the hang */
@@ -244,8 +258,6 @@ static void scx200_acb_poll(struct scx200_acb_iface *iface)
 		}
 		if (time_after(jiffies, timeout))
 			break;
-		cpu_relax();
-		cond_resched();
 	}
 
 	dev_err(&iface->adapter.dev, "timeout in state %s\n",

@@ -52,6 +52,7 @@
 #include <linux/errno.h>
 #include <linux/init.h>
 #include <linux/if_ether.h>
+#include <linux/if_vlan.h>
 #include <net/dst.h>
 #include <net/arp.h>
 #include <net/sock.h>
@@ -204,7 +205,7 @@ __be16 eth_type_trans(struct sk_buff *skb, struct net_device *dev)
 	 *      layer. We look for FFFF which isn't a used 802.2 SSAP/DSAP. This
 	 *      won't work for fault tolerant netware but does for the rest.
 	 */
-	if (skb->len >= 2 && *(unsigned short *)(skb->data) == 0xFFFF)
+	if (skb->len >= 2 && get_unaligned((unsigned short *) skb->data) == 0xFFFF)
 		return htons(ETH_P_802_3);
 
 	/*

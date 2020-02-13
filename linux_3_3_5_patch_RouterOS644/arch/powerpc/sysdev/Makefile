@@ -4,6 +4,7 @@ ccflags-$(CONFIG_PPC64)		:= -mno-minimal-toc
 
 mpic-msi-obj-$(CONFIG_PCI_MSI)	+= mpic_msi.o mpic_u3msi.o mpic_pasemi_msi.o
 obj-$(CONFIG_MPIC)		+= mpic.o $(mpic-msi-obj-y)
+obj-$(CONFIG_MT_VIC)		+= mtvic.o
 obj-$(CONFIG_PPC_EPAPR_HV_PIC)	+= ehv_pic.o
 fsl-msi-obj-$(CONFIG_PCI_MSI)	+= fsl_msi.o
 obj-$(CONFIG_PPC_MSI_BITMAP)	+= msi_bitmap.o
@@ -52,6 +53,10 @@ obj-$(CONFIG_QUICC_ENGINE)	+= cpm_common.o
 obj-$(CONFIG_PPC_DCR)		+= dcr.o
 obj-$(CONFIG_8xx)		+= mpc8xx_pic.o cpm1.o
 obj-$(CONFIG_UCODE_PATCH)	+= micropatch.o
+
+obj-$(CONFIG_RB_IOMAP)		+= rb_iomap.o
+obj-$(CONFIG_RB_AUX)		+= rb_aux.o
+obj-$(CONFIG_RB_PCI)		+= rb_pci.o
 
 obj-$(CONFIG_PPC_MPC512x)	+= mpc5xxx_clocks.o
 obj-$(CONFIG_PPC_MPC52xx)	+= mpc5xxx_clocks.o

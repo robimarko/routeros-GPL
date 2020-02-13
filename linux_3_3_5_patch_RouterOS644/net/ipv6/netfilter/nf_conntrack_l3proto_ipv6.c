@@ -259,14 +259,14 @@ static struct nf_hook_ops ipv6_conntrack_ops[] __read_mostly = {
 		.owner		= THIS_MODULE,
 		.pf		= NFPROTO_IPV6,
 		.hooknum	= NF_INET_POST_ROUTING,
-		.priority	= NF_IP6_PRI_LAST,
+		.priority	= NF_IP6_PRI_CONNTRACK_CONFIRM,
 	},
 	{
 		.hook		= ipv6_confirm,
 		.owner		= THIS_MODULE,
 		.pf		= NFPROTO_IPV6,
 		.hooknum	= NF_INET_LOCAL_IN,
-		.priority	= NF_IP6_PRI_LAST-1,
+		.priority	= NF_IP6_PRI_CONNTRACK_CONFIRM,
 	},
 };
 
@@ -338,7 +338,6 @@ static int __init nf_conntrack_l3proto_ipv6_init(void)
 	int ret = 0;
 
 	need_conntrack();
-	nf_defrag_ipv6_enable();
 
 	ret = nf_conntrack_l4proto_register(&nf_conntrack_l4proto_tcp6);
 	if (ret < 0) {

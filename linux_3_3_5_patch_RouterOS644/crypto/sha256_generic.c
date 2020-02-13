@@ -42,7 +42,7 @@ static inline u32 Maj(u32 x, u32 y, u32 z)
 
 static inline void LOAD_OP(int I, u32 *W, const u8 *input)
 {
-	W[I] = __be32_to_cpu( ((__be32*)(input))[I] );
+	W[I] = get_unaligned_be32((__u32 *)input + I);
 }
 
 static inline void BLEND_OP(int I, u32 *W)
@@ -300,7 +300,7 @@ static int sha256_final(struct shash_desc *desc, u8 *out)
 
 	/* Store state in digest */
 	for (i = 0; i < 8; i++)
-		dst[i] = cpu_to_be32(sctx->state[i]);
+                put_unaligned_be32(sctx->state[i], &dst[i]);
 
 	/* Zeroize sensitive information. */
 	memset(sctx, 0, sizeof(*sctx));

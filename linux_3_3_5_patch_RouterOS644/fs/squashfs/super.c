@@ -36,6 +36,7 @@
 #include <linux/module.h>
 #include <linux/magic.h>
 #include <linux/xattr.h>
+#include <linux/file.h>
 
 #include "squashfs_fs.h"
 #include "squashfs_fs_sb.h"
@@ -78,15 +79,24 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 {
 	struct squashfs_sb_info *msblk;
 	struct squashfs_super_block *sblk = NULL;
-	char b[BDEVNAME_SIZE];
 	struct inode *root;
+	struct file *file;
 	long long root_inode;
 	unsigned short flags;
 	unsigned int fragments;
 	u64 lookup_table_start, xattr_id_table_start, next_table;
+	unsigned offset = 0;
+	char *rem;
+	int fd;
 	int err;
 
 	TRACE("Entered squashfs_fill_superblock\n");
+
+	fd = simple_strtoul((char *) data, &rem, 10);
+	if (*rem == ':') offset = simple_strtoul(rem + 1, NULL, 10);
+	file = fget(fd);
+	if (!file || file->f_mode & FMODE_WRITE)
+		return -EINVAL;
 
 	sb->s_fs_info = kzalloc(sizeof(*msblk), GFP_KERNEL);
 	if (sb->s_fs_info == NULL) {
@@ -95,8 +105,10 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 	}
 	msblk = sb->s_fs_info;
 
-	msblk->devblksize = sb_min_blocksize(sb, SQUASHFS_DEVBLK_SIZE);
+	msblk->file = file;
+	msblk->devblksize = PAGE_CACHE_SIZE;
 	msblk->devblksize_log2 = ffz(~msblk->devblksize);
+	msblk->offset = offset >> msblk->devblksize_log2;
 
 	mutex_init(&msblk->read_data_mutex);
 	mutex_init(&msblk->meta_index_mutex);
@@ -123,8 +135,7 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 	sb->s_magic = le32_to_cpu(sblk->s_magic);
 	if (sb->s_magic != SQUASHFS_MAGIC) {
 		if (!silent)
-			ERROR("Can't find a SQUASHFS superblock on %s\n",
-						bdevname(sb->s_bdev, b));
+			ERROR("Can't find a SQUASHFS superblock\n");
 		goto failed_mount;
 	}
 
@@ -139,9 +150,11 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 	/* Check the filesystem does not extend beyond the end of the
 	   block device */
 	msblk->bytes_used = le64_to_cpu(sblk->bytes_used);
+#if 0
 	if (msblk->bytes_used < 0 || msblk->bytes_used >
 			i_size_read(sb->s_bdev->bd_inode))
 		goto failed_mount;
+#endif
 
 	/* Check block size for sanity */
 	msblk->block_size = le32_to_cpu(sblk->block_size);
@@ -172,7 +185,7 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 	msblk->inodes = le32_to_cpu(sblk->inodes);
 	flags = le16_to_cpu(sblk->flags);
 
-	TRACE("Found valid superblock on %s\n", bdevname(sb->s_bdev, b));
+	TRACE("Found valid superblock\n");
 	TRACE("Inodes are %scompressed\n", SQUASHFS_UNCOMPRESSED_INODES(flags)
 				? "un" : "");
 	TRACE("Data is %scompressed\n", SQUASHFS_UNCOMPRESSED_DATA(flags)
@@ -194,18 +207,6 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 	sb->s_op = &squashfs_super_ops;
 
 	err = -ENOMEM;
-
-	msblk->block_cache = squashfs_cache_init("metadata",
-			SQUASHFS_CACHED_BLKS, SQUASHFS_METADATA_SIZE);
-	if (msblk->block_cache == NULL)
-		goto failed_mount;
-
-	/* Allocate read_page block */
-	msblk->read_page = squashfs_cache_init("data", 1, msblk->block_size);
-	if (msblk->read_page == NULL) {
-		ERROR("Failed to allocate read_page block\n");
-		goto failed_mount;
-	}
 
 	msblk->stream = squashfs_decompressor_init(sb, flags);
 	if (IS_ERR(msblk->stream)) {
@@ -270,13 +271,6 @@ handle_fragments:
 	if (fragments == 0)
 		goto check_directory_table;
 
-	msblk->fragment_cache = squashfs_cache_init("fragment",
-		SQUASHFS_CACHED_FRAGMENTS, msblk->block_size);
-	if (msblk->fragment_cache == NULL) {
-		err = -ENOMEM;
-		goto failed_mount;
-	}
-
 	/* Allocate and read fragment index table */
 	msblk->fragment_index = squashfs_read_fragment_index_table(sb,
 		le64_to_cpu(sblk->fragment_table_start), next_table, fragments);
@@ -329,9 +323,6 @@ check_directory_table:
 	return 0;
 
 failed_mount:
-	squashfs_cache_delete(msblk->block_cache);
-	squashfs_cache_delete(msblk->fragment_cache);
-	squashfs_cache_delete(msblk->read_page);
 	squashfs_decompressor_free(msblk, msblk->stream);
 	kfree(msblk->inode_lookup_table);
 	kfree(msblk->fragment_index);
@@ -347,7 +338,7 @@ failed_mount:
 static int squashfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 {
 	struct squashfs_sb_info *msblk = dentry->d_sb->s_fs_info;
-	u64 id = huge_encode_dev(dentry->d_sb->s_bdev->bd_dev);
+	u64 id = msblk->file->f_dentry->d_inode->i_ino;
 
 	TRACE("Entered squashfs_statfs\n");
 
@@ -376,9 +367,7 @@ static void squashfs_put_super(struct super_block *sb)
 {
 	if (sb->s_fs_info) {
 		struct squashfs_sb_info *sbi = sb->s_fs_info;
-		squashfs_cache_delete(sbi->block_cache);
-		squashfs_cache_delete(sbi->fragment_cache);
-		squashfs_cache_delete(sbi->read_page);
+		put_filp(sbi->file);
 		squashfs_decompressor_free(sbi, sbi->stream);
 		kfree(sbi->id_table);
 		kfree(sbi->fragment_index);
@@ -394,7 +383,15 @@ static void squashfs_put_super(struct super_block *sb)
 static struct dentry *squashfs_mount(struct file_system_type *fs_type,
 				int flags, const char *dev_name, void *data)
 {
-	return mount_bdev(fs_type, flags, dev_name, data, squashfs_fill_super);
+	return mount_nodev(fs_type, flags, (void *) dev_name, squashfs_fill_super);
+}
+
+static void squashfs_kill_sb(struct super_block *sb)
+{
+	struct squashfs_sb_info *msblk = sb->s_fs_info;
+	fput(msblk->file);
+	kill_anon_super(sb);
+	kfree(sb->s_fs_info);
 }
 
 
@@ -441,12 +438,37 @@ static int __init init_squashfs_fs(void)
 	printk(KERN_INFO "squashfs: version 4.0 (2009/01/31) "
 		"Phillip Lougher\n");
 
+	block_cache = squashfs_cache_init("metadata",
+		SQUASHFS_CACHED_BLKS, SQUASHFS_METADATA_SIZE);
+	if (block_cache == NULL)
+		goto failed_block_cache;
+
+	read_page = squashfs_cache_init("data", 1, SQUASHFS_FILE_SIZE);
+	if (read_page == NULL)
+		goto failed_read_page;
+
+	fragment_cache = squashfs_cache_init("fragment",
+		SQUASHFS_CACHED_FRAGMENTS, SQUASHFS_FILE_SIZE);
+	if (fragment_cache == NULL)
+		goto failed_fragment_cache;
+
 	return 0;
+
+  failed_fragment_cache:
+	squashfs_cache_delete(read_page);
+  failed_read_page:
+	squashfs_cache_delete(block_cache);
+  failed_block_cache:
+	return -ENOMEM;
 }
 
 
 static void __exit exit_squashfs_fs(void)
 {
+	squashfs_cache_delete(block_cache);
+	squashfs_cache_delete(fragment_cache);
+	squashfs_cache_delete(read_page);
+
 	unregister_filesystem(&squashfs_fs_type);
 	destroy_inodecache();
 }
@@ -477,7 +499,7 @@ static struct file_system_type squashfs_fs_type = {
 	.owner = THIS_MODULE,
 	.name = "squashfs",
 	.mount = squashfs_mount,
-	.kill_sb = kill_block_super,
+	.kill_sb = squashfs_kill_sb,
 	.fs_flags = FS_REQUIRES_DEV
 };
 

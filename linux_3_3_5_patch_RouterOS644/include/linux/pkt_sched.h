@@ -306,11 +306,17 @@ struct tc_choke_xstats {
 struct tc_htb_opt {
 	struct tc_ratespec 	rate;
 	struct tc_ratespec 	ceil;
+	struct tc_ratespec	burst;
 	__u32	buffer;
 	__u32	cbuffer;
+	__u32	bbuffer;
 	__u32	quantum;
 	__u32	level;		/* out only */
 	__u32	prio;
+
+	__u32	thr_ceil;
+	__u32	thr_burst;
+	__u32	interval;
 };
 struct tc_htb_glob {
 	__u32 version;		/* to match HTB/TC */
@@ -325,6 +331,7 @@ enum {
 	TCA_HTB_UNSPEC,
 	TCA_HTB_PARMS,
 	TCA_HTB_INIT,
+	TCA_HTB_BTAB,
 	TCA_HTB_CTAB,
 	TCA_HTB_RTAB,
 	__TCA_HTB_MAX,

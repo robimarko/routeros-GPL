@@ -33,11 +33,29 @@ static struct event_symbol event_symbols[] = {
   { CHW(STALLED_CYCLES_FRONTEND),	"stalled-cycles-frontend",	"idle-cycles-frontend"	},
   { CHW(STALLED_CYCLES_BACKEND),	"stalled-cycles-backend",	"idle-cycles-backend"	},
   { CHW(INSTRUCTIONS),			"instructions",			""			},
+#ifndef __tile__
+  /* 
+   * TILE processors support DCache and ICache profiling indivudally, so
+   * CACHE_MISSES and CACHE_REFERENCES do not make sense to TILE processors.
+   */
   { CHW(CACHE_REFERENCES),		"cache-references",		""			},
   { CHW(CACHE_MISSES),			"cache-misses",			""			},
+#endif
+#ifdef __tilegx__
+  /* TILE-Gx does not have a branch instruction counter.  We use the
+   * branch correctly mispredicted counter here, and modify the
+   * reporting function appropriately to compute branch mispredict
+   * rate.
+   */
+  { CHW(BRANCH_INSTRUCTIONS),		"correctly-predicted-branches",		""		},
+#else
   { CHW(BRANCH_INSTRUCTIONS),		"branch-instructions",		"branches"		},
+#endif
   { CHW(BRANCH_MISSES),			"branch-misses",		""			},
+#ifndef __tile__
+  /* TILE processors do not support BUS_CYCLES profiling. */
   { CHW(BUS_CYCLES),			"bus-cycles",			""			},
+#endif
   { CHW(REF_CPU_CYCLES),		"ref-cycles",			""			},
 
   { CSW(CPU_CLOCK),			"cpu-clock",			""			},
@@ -49,6 +67,15 @@ static struct event_symbol event_symbols[] = {
   { CSW(CPU_MIGRATIONS),		"cpu-migrations",		"migrations"		},
   { CSW(ALIGNMENT_FAULTS),		"alignment-faults",		""			},
   { CSW(EMULATION_FAULTS),		"emulation-faults",		""			},
+
+/*
+ * Include any per-architecture raw events.
+ * NOTE: we don't use '#ifdef __tile__' to support the cross-build where
+ * we don't provide __tile__ but just the sub-architecture type.
+ */
+#if defined(__tilepro__) || defined(__tilegx__)
+#include "../arch/tile/perf.h"
+#endif
 };
 
 #define __PERF_EVENT_FIELD(config, name) \
@@ -64,7 +91,11 @@ static const char *hw_event_names[PERF_COUNT_HW_MAX] = {
 	"instructions",
 	"cache-references",
 	"cache-misses",
+#ifdef __tilegx__
+	"predicted-branches",
+#else
 	"branches",
+#endif
 	"branch-misses",
 	"bus-cycles",
 	"stalled-cycles-frontend",
@@ -120,6 +151,7 @@ static const char *hw_cache_result[PERF_COUNT_HW_CACHE_RESULT_MAX]
  * ITLB and BPU : Read-only
  */
 static unsigned long hw_cache_stat[C(MAX)] = {
+#ifndef __tile__
  [C(L1D)]	= (CACHE_READ | CACHE_WRITE | CACHE_PREFETCH),
  [C(L1I)]	= (CACHE_READ | CACHE_PREFETCH),
  [C(LL)]	= (CACHE_READ | CACHE_WRITE | CACHE_PREFETCH),
@@ -127,6 +159,25 @@ static unsigned long hw_cache_stat[C(MAX)] = {
  [C(ITLB)]	= (CACHE_READ),
  [C(BPU)]	= (CACHE_READ),
  [C(NODE)]	= (CACHE_READ | CACHE_WRITE | CACHE_PREFETCH),
+#else
+/* 
+  * TILEPro only supports L1D_READ_MISS, L1D_WRITE_MISS, L1I_READ_ACCESS
+  * DTLB_READ_ACCESS, DTLB_READ_MISS, ITLB_READ_ACCESS. 
+  * TILEgX only supports L1D_READ_MISS, L1D_WRITE_MISS, DTLB_READ_ACCESS
+  * DTLB_READ_MISS, DTLB_WRITE_ACCESS, DTLB_WRITE_MISS, ITLB_READ_MISS
+  * ITLB_WRITE_MISS.
+  * So we disable HW_CACHE table here for TILE, but we can still
+  * use RAW type event names(IDs) to profile.
+  * FIXME: why is this tile-specific?
+  */
+ [C(L1D)]       = 0,
+ [C(L1I)]       = 0,
+ [C(LL)]        = 0,
+ [C(DTLB)]      = 0,
+ [C(ITLB)]      = 0,
+ [C(BPU)]       = 0,
+ [C(NODE)]	= 0,
+#endif
 };
 
 #define for_each_subsystem(sys_dir, sys_dirent, sys_next)	       \
@@ -305,9 +356,20 @@ const char *event_name(struct perf_evsel *evsel)
 
 const char *__event_name(int type, u64 config)
 {
-	static char buf[32];
+	static char buf[64];
 
 	if (type == PERF_TYPE_RAW) {
+		/* 
+		 * Support RAW TYPE event name instead of event id
+		 * for readability. This is an enhancement for Tilera
+		 * TILE arch.
+		 */
+		for (unsigned int i=0; i < ARRAY_SIZE(event_symbols); i++) {
+			if (event_symbols[i].type == PERF_TYPE_RAW &&
+				event_symbols[i].config == config)
+			return event_symbols[i].symbol;
+		}
+		// Fallback: return raw event ID value.
 		sprintf(buf, "raw 0x%" PRIx64, config);
 		return buf;
 	}

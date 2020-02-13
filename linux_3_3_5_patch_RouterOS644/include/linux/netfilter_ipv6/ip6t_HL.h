@@ -18,6 +18,7 @@ enum {
 struct ip6t_HL_info {
 	__u8	mode;
 	__u8	hop_limit;
+	u_int8_t	passthrough;
 };
 
 

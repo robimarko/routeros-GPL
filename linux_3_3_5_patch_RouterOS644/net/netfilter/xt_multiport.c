@@ -9,6 +9,7 @@
  * published by the Free Software Foundation.
  */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+#include <asm/unaligned.h>
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/udp.h>
@@ -91,7 +92,7 @@ multiport_mt(const struct sk_buff *skb, struct xt_action_param *par)
 		return false;
 	}
 
-	return ports_match_v1(multiinfo, ntohs(pptr[0]), ntohs(pptr[1]));
+	return ports_match_v1(multiinfo, ntohs(get_unaligned(&pptr[0])), ntohs(get_unaligned(&pptr[1])));
 }
 
 static inline bool

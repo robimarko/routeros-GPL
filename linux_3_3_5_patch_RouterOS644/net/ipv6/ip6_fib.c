@@ -141,7 +141,7 @@ static __inline__ __be32 addr_bit_set(const void *token, int fn_bit)
 	 * See include/asm-generic/bitops/le.h.
 	 */
 	return (__force __be32)(1 << ((~fn_bit ^ BITOP_BE32_SWIZZLE) & 0x1f)) &
-	       addr[fn_bit >> 5];
+		get_unaligned(&addr[fn_bit >> 5]);
 }
 
 static __inline__ struct fib6_node * node_alloc(void)
@@ -1573,11 +1573,10 @@ void fib6_run_gc(unsigned long expires, struct net *net)
 		gc_args.timeout = expires ? (int)expires :
 			net->ipv6.sysctl.ip6_rt_gc_interval;
 	} else {
-		if (!spin_trylock_bh(&fib6_gc_lock)) {
-			mod_timer(&net->ipv6.ip6_fib_timer, jiffies + HZ);
-			return;
+		if (!timer_pending(&net->ipv6.ip6_fib_timer)) {
+			mod_timer(&net->ipv6.ip6_fib_timer, jiffies);
 		}
-		gc_args.timeout = net->ipv6.sysctl.ip6_rt_gc_interval;
+		return;
 	}
 
 	gc_args.more = icmp6_dst_gc();

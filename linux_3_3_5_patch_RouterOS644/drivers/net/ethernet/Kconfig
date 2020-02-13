@@ -85,6 +85,29 @@ config LANTIQ_ETOP
 	---help---
 	  Support for the MII0 inside the Lantiq SoC
 
+config RBKORINA
+	tristate "RB500 Korina ethernet support"
+	depends on MIPS_MIKROTIK
+	help
+	  This is idt mips chip built-in ethernet port.
+
+	  To compile this driver as a module, choose M here and read
+	  <file:Documentation/networking/net-modules.txt>. The module
+	  will be called korina.
+
+config ADM5120_ETH
+	tristate "RB100 ADM5120 ethernet support"
+	depends on MIPS_MIKROTIK
+
+config CRETHER
+	tristate "RB CR ethernet support"
+	depends on MIPS_MIKROTIK
+
+config MT_VETH
+	bool "MetaROUTER Virtual Ethernet support"
+	depends on METAROUTER || MIPS_MIKROTIK
+	default y
+
 source "drivers/net/ethernet/marvell/Kconfig"
 source "drivers/net/ethernet/mellanox/Kconfig"
 source "drivers/net/ethernet/micrel/Kconfig"

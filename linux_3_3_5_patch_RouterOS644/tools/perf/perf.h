@@ -101,6 +101,13 @@ void get_term_dimensions(struct winsize *ws);
 #define CPUINFO_PROC	"cpu model"
 #endif
 
+#ifdef __tile__
+#include "../../arch/tile/include/asm/unistd.h"
+#define rmb()          asm volatile ("mf" ::: "memory")
+#define cpu_relax()    asm volatile ("mfspr zero, PASS" ::: "memory")
+#endif
+
+
 #include <time.h>
 #include <unistd.h>
 #include <sys/types.h>

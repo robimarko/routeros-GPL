@@ -336,7 +336,7 @@ void oprofile_add_sample(struct pt_regs * const regs, unsigned long event)
 
 	if (likely(regs)) {
 		is_kernel = !user_mode(regs);
-		pc = profile_pc(regs);
+		pc = instruction_pointer(regs);
 	} else {
 		is_kernel = 0;    /* This value will not be used */
 		pc = ESCAPE_CODE; /* as this causes an early return. */

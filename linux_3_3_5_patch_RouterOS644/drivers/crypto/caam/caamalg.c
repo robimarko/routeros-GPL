@@ -2243,6 +2243,9 @@ static int __init caam_algapi_init(void)
 
 	ctrldev = &pdev->dev;
 	priv = dev_get_drvdata(ctrldev);
+	if (!priv)
+		return -ENODEV;
+
 	of_node_put(dev_node);
 
 	INIT_LIST_HEAD(&priv->alg_list);
@@ -2256,7 +2259,7 @@ static int __init caam_algapi_init(void)
 		if (err < 0)
 			break;
 	}
-	if (err < 0 && i == 0) {
+	if (err < 0 || i == 0) {
 		dev_err(ctrldev, "algapi error in job ring registration: %d\n",
 			err);
 		kfree(jrdev);

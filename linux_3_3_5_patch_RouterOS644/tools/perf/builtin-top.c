@@ -616,6 +616,7 @@ static const char *skip_symbols[] = {
 	"poll_idle",
 	"ppc64_runlatch_off",
 	"pseries_dedicated_idle_sleep",
+	"_cpu_idle_nap", /* TILE arch */
 	NULL
 };
 

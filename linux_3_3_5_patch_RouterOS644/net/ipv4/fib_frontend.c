@@ -46,6 +46,8 @@
 #include <net/rtnetlink.h>
 #include <net/xfrm.h>
 
+int sysctl_kernel_adds_connected_routes __read_mostly = 0;
+
 #ifndef CONFIG_IP_MULTIPLE_TABLES
 
 static int __net_init fib4_rules_init(struct net *net)
@@ -482,6 +484,7 @@ const struct nla_policy rtm_ipv4_policy[RTA_MAX + 1] = {
 	[RTA_METRICS]		= { .type = NLA_NESTED },
 	[RTA_MULTIPATH]		= { .len = sizeof(struct rtnexthop) },
 	[RTA_FLOW]		= { .type = NLA_U32 },
+        [RTA_MPLSKEY]		= { .type = NLA_U32 },
 };
 
 static int rtm_to_fib_config(struct net *net, struct sk_buff *skb,
@@ -546,6 +549,9 @@ static int rtm_to_fib_config(struct net *net, struct sk_buff *skb,
 			break;
 		case RTA_TABLE:
 			cfg->fc_table = nla_get_u32(attr);
+			break;
+		case RTA_MPLSKEY:
+			cfg->fc_mplskey = nla_get_u32(attr);
 			break;
 		}
 	}
@@ -711,9 +717,11 @@ void fib_add_ifaddr(struct in_ifaddr *ifa)
 
 	if (!ipv4_is_zeronet(prefix) && !(ifa->ifa_flags & IFA_F_SECONDARY) &&
 	    (prefix != addr || ifa->ifa_prefixlen < 32)) {
+		if (sysctl_kernel_adds_connected_routes) {
 		fib_magic(RTM_NEWROUTE,
 			  dev->flags & IFF_LOOPBACK ? RTN_LOCAL : RTN_UNICAST,
 			  prefix, ifa->ifa_prefixlen, prim);
+		}
 
 		/* Add network specific broadcasts, when it takes a sense */
 		if (ifa->ifa_prefixlen < 31) {
@@ -758,10 +766,12 @@ void fib_del_ifaddr(struct in_ifaddr *ifa, struct in_ifaddr *iprim)
 		}
 	} else if (!ipv4_is_zeronet(any) &&
 		   (any != ifa->ifa_local || ifa->ifa_prefixlen < 32)) {
+            if (sysctl_kernel_adds_connected_routes) {
 		fib_magic(RTM_DELROUTE,
 			  dev->flags & IFF_LOOPBACK ? RTN_LOCAL : RTN_UNICAST,
 			  any, ifa->ifa_prefixlen, prim);
 		subnet = 1;
+	}
 	}
 
 	/* Deletion is more complicated than add.

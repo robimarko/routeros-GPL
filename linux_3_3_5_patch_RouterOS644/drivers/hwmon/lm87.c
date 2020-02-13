@@ -76,6 +76,8 @@ static const unsigned short normal_i2c[] = { 0x2c, 0x2d, 0x2e, I2C_CLIENT_END };
 
 enum chips { lm87, adm1024 };
 
+static const int force_temp3 = 1;
+
 /*
  * The LM87 registers
  */
@@ -119,12 +121,12 @@ static u8 LM87_REG_TEMP_LOW[3] = { 0x3A, 0x38, 0x2C };
  * The LM87 uses signed 8-bit values for temperatures.
  */
 
-#define IN_FROM_REG(reg,scale)	(((reg) * (scale) + 96) / 192)
+#define IN_FROM_REG(reg,scale)	((reg) > 0xff ? -1 : ((reg) * (scale) + 96) / 192)
 #define IN_TO_REG(val,scale)	((val) <= 0 ? 0 : \
 				 (val) * 192 >= (scale) * 255 ? 255 : \
 				 ((val) * 192 + (scale)/2) / (scale))
 
-#define TEMP_FROM_REG(reg)	((reg) * 1000)
+#define TEMP_FROM_REG(reg)	((reg) > 0xff ? -1 : ((s8)reg) * 1000)
 #define TEMP_TO_REG(val)	((val) <= -127500 ? -128 : \
 				 (val) >= 126500 ? 127 : \
 				 (((val) < 0 ? (val)-500 : (val)+500) / 1000))
@@ -196,16 +198,16 @@ struct lm87_data {
 	u8 channel;		/* register value */
 	u8 config;		/* original register value */
 
-	u8 in[8];		/* register value */
-	u8 in_max[8];		/* register value */
-	u8 in_min[8];		/* register value */
+	u16 in[8];		/* register value */
+	u16 in_max[8];		/* register value */
+	u16 in_min[8];		/* register value */
 	u16 in_scale[8];
 
-	s8 temp[3];		/* register value */
-	s8 temp_high[3];	/* register value */
-	s8 temp_low[3];		/* register value */
-	s8 temp_crit_int;	/* min of two register values */
-	s8 temp_crit_ext;	/* min of two register values */
+	u16 temp[3];		/* register value */
+	u16 temp_high[3];	/* register value */
+	u16 temp_low[3];	/* register value */
+	u16 temp_crit_int;	/* min of two register values */
+	u16 temp_crit_ext;	/* min of two register values */
 
 	u8 fan[2];		/* register value */
 	u8 fan_min[2];		/* register value */
@@ -235,19 +237,19 @@ static inline int lm87_write_value(struct i2c_client *client, u8 reg, u8 value)
 static ssize_t show_in##offset##_input(struct device *dev, struct device_attribute *attr, char *buf) \
 { \
 	struct lm87_data *data = lm87_update_device(dev); \
-	return sprintf(buf, "%u\n", IN_FROM_REG(data->in[offset], \
+	return sprintf(buf, "%d\n", IN_FROM_REG(data->in[offset], \
 		       data->in_scale[offset])); \
 } \
 static ssize_t show_in##offset##_min(struct device *dev, struct device_attribute *attr, char *buf) \
 { \
 	struct lm87_data *data = lm87_update_device(dev); \
-	return sprintf(buf, "%u\n", IN_FROM_REG(data->in_min[offset], \
+	return sprintf(buf, "%d\n", IN_FROM_REG(data->in_min[offset], \
 		       data->in_scale[offset])); \
 } \
 static ssize_t show_in##offset##_max(struct device *dev, struct device_attribute *attr, char *buf) \
 { \
 	struct lm87_data *data = lm87_update_device(dev); \
-	return sprintf(buf, "%u\n", IN_FROM_REG(data->in_max[offset], \
+	return sprintf(buf, "%d\n", IN_FROM_REG(data->in_max[offset], \
 		       data->in_scale[offset])); \
 } \
 static DEVICE_ATTR(in##offset##_input, S_IRUGO, \
@@ -839,6 +841,10 @@ static void lm87_init_client(struct i2c_client *client)
 				 LM87_REG_CHANNEL_MODE, data->channel);
 	} else {
 		data->channel = lm87_read_value(client, LM87_REG_CHANNEL_MODE);
+	}
+	if (force_temp3 && !(data->channel & CHAN_TEMP3)) {
+		data->channel |= CHAN_TEMP3;
+		lm87_write_value(client, LM87_REG_CHANNEL_MODE, data->channel);
 	}
 	data->config = lm87_read_value(client, LM87_REG_CONFIG) & 0x6F;
 

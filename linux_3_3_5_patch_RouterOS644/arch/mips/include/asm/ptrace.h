@@ -164,6 +164,9 @@ static inline void die_if_kernel(const char *str, struct pt_regs *regs)
 		die(str, regs);
 }
 
+unsigned long find_prev_frame(unsigned long pc, unsigned long ra,
+			      unsigned long *sp, int usermode);
+
 #endif
 
 #endif /* _ASM_PTRACE_H */

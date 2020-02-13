@@ -94,7 +94,9 @@ else
 endif
 endif
 
+ifeq ($(CONFIG_OPTIMIZE_FOR_SIZE),y)
 KBUILD_LDFLAGS_MODULE += arch/powerpc/lib/crtsavres.o
+endif
 
 ifeq ($(CONFIG_TUNE_CELL),y)
 	KBUILD_CFLAGS += $(call cc-option,-mtune=cell)

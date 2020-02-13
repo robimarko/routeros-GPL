@@ -19,6 +19,7 @@
 #include <net/ipv6.h>
 #include <net/route.h>
 #include <net/tcp.h>
+#include <asm/unaligned.h>
 
 #include <linux/netfilter_ipv4/ip_tables.h>
 #include <linux/netfilter_ipv6/ip6_tables.h>
@@ -136,7 +137,7 @@ tcpmss_mangle_packet(struct sk_buff *skb,
 	opt[2] = (newmss & 0xff00) >> 8;
 	opt[3] = newmss & 0x00ff;
 
-	inet_proto_csum_replace4(&tcph->check, skb, 0, *((__be32 *)opt), 0);
+	inet_proto_csum_replace4(&tcph->check, skb, 0, get_unaligned((__be32 *)opt), 0);
 
 	oldval = ((__be16 *)tcph)[6];
 	tcph->doff += TCPOLEN_MSS/4;
@@ -182,8 +183,9 @@ tcpmss_tg4(struct sk_buff *skb, const struct xt_action_param *par)
 	struct iphdr *iph = ip_hdr(skb);
 	__be16 newlen;
 	int ret;
+	const struct xt_tcpmss_info *info = par->targinfo;
 
-	ret = tcpmss_mangle_packet(skb, par->targinfo,
+	ret = tcpmss_mangle_packet(skb, info,
 				   tcpmss_reverse_mtu(skb, PF_INET),
 				   iph->ihl * 4,
 				   sizeof(*iph) + sizeof(struct tcphdr));
@@ -195,7 +197,7 @@ tcpmss_tg4(struct sk_buff *skb, const struct xt_action_param *par)
 		csum_replace2(&iph->check, iph->tot_len, newlen);
 		iph->tot_len = newlen;
 	}
-	return XT_CONTINUE;
+	return info->passthrough ? XT_CONTINUE : NF_ACCEPT;
 }
 
 #if IS_ENABLED(CONFIG_IP6_NF_IPTABLES)
@@ -207,12 +209,13 @@ tcpmss_tg6(struct sk_buff *skb, const struct xt_action_param *par)
 	__be16 frag_off;
 	int tcphoff;
 	int ret;
+	const struct xt_tcpmss_info *info = par->targinfo;
 
 	nexthdr = ipv6h->nexthdr;
 	tcphoff = ipv6_skip_exthdr(skb, sizeof(*ipv6h), &nexthdr, &frag_off);
 	if (tcphoff < 0)
 		return NF_DROP;
-	ret = tcpmss_mangle_packet(skb, par->targinfo,
+	ret = tcpmss_mangle_packet(skb, info,
 				   tcpmss_reverse_mtu(skb, PF_INET6),
 				   tcphoff,
 				   sizeof(*ipv6h) + sizeof(struct tcphdr));
@@ -222,7 +225,7 @@ tcpmss_tg6(struct sk_buff *skb, const struct xt_action_param *par)
 		ipv6h = ipv6_hdr(skb);
 		ipv6h->payload_len = htons(ntohs(ipv6h->payload_len) + ret);
 	}
-	return XT_CONTINUE;
+	return info->passthrough ? XT_CONTINUE : NF_ACCEPT;
 }
 #endif
 

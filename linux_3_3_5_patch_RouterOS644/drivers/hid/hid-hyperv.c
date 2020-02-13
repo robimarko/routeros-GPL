@@ -460,6 +460,7 @@ static struct hid_driver mousevsc_hid_driver;
 static int mousevsc_probe(struct hv_device *device,
 			const struct hv_vmbus_device_id *dev_id)
 {
+	if (hv_vmbus_disabled()) return -ENODEV;
 	int ret;
 	struct mousevsc_dev *input_dev;
 	struct hid_device *hid_dev;
@@ -573,6 +574,7 @@ static struct  hv_driver mousevsc_drv = {
 
 static int __init mousevsc_init(void)
 {
+	if (hv_vmbus_disabled()) return 0;
 	return vmbus_driver_register(&mousevsc_drv);
 }
 

@@ -269,7 +269,7 @@ SYSCALL_DEFINE5(llseek, unsigned int, fd, unsigned long, offset_high,
 	if (origin > SEEK_MAX)
 		goto out_putf;
 
-	offset = vfs_llseek(file, ((loff_t) offset_high << 32) | offset_low,
+	offset = vfs_llseek(file, ((loff_t) offset_high << 32) | (offset_low & 0xffffffff),
 			origin);
 
 	retval = (int)offset;

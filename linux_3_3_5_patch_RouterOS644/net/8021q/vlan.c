@@ -78,10 +78,11 @@ void unregister_vlan_dev(struct net_device *dev, struct list_head *head)
 	struct vlan_info *vlan_info;
 	struct vlan_group *grp;
 	u16 vlan_id = vlan->vlan_id;
+	unsigned short vlan_proto = vlan->vlan_proto;
 
 	ASSERT_RTNL();
 
-	vlan_info = rtnl_dereference(real_dev->vlan_info);
+	vlan_info = vlan_get_info(real_dev, vlan_proto);
 	BUG_ON(!vlan_info);
 
 	grp = &vlan_info->grp;
@@ -91,7 +92,7 @@ void unregister_vlan_dev(struct net_device *dev, struct list_head *head)
 	 * VLAN is not 0 (leave it there for 802.1p).
 	 */
 	if (vlan_id)
-		vlan_vid_del(real_dev, vlan_id);
+		vlan_vid_del(real_dev, vlan_id, vlan_proto);
 
 	grp->nr_vlan_devs--;
 
@@ -105,6 +106,8 @@ void unregister_vlan_dev(struct net_device *dev, struct list_head *head)
 	 */
 	unregister_netdevice_queue(dev, head);
 
+	netdev_upper_dev_unlink(real_dev, dev);
+
 	if (grp->nr_vlan_devs == 0)
 		vlan_gvrp_uninit_applicant(real_dev);
 
@@ -112,7 +115,8 @@ void unregister_vlan_dev(struct net_device *dev, struct list_head *head)
 	dev_put(real_dev);
 }
 
-int vlan_check_real_dev(struct net_device *real_dev, u16 vlan_id)
+int vlan_check_real_dev(struct net_device *real_dev, u16 vlan_id,
+		        unsigned short proto)
 {
 	const char *name = real_dev->name;
 	const struct net_device_ops *ops = real_dev->netdev_ops;
@@ -128,10 +132,15 @@ int vlan_check_real_dev(struct net_device *real_dev, u16 vlan_id)
 		return -EOPNOTSUPP;
 	}
 
-	if (vlan_find_dev(real_dev, vlan_id) != NULL)
+	if (vlan_find_dev(real_dev, vlan_id, proto) != NULL)
 		return -EEXIST;
 
 	return 0;
+}
+
+static void vlan_free(struct net_device *dev) {
+    free_netdev(dev);
+    module_put(THIS_MODULE);
 }
 
 int register_vlan_dev(struct net_device *dev)
@@ -139,15 +148,16 @@ int register_vlan_dev(struct net_device *dev)
 	struct vlan_dev_priv *vlan = vlan_dev_priv(dev);
 	struct net_device *real_dev = vlan->real_dev;
 	u16 vlan_id = vlan->vlan_id;
+	unsigned short vlan_proto = vlan->vlan_proto;
 	struct vlan_info *vlan_info;
 	struct vlan_group *grp;
 	int err;
 
-	err = vlan_vid_add(real_dev, vlan_id);
+	err = vlan_vid_add(real_dev, vlan_id, vlan_proto);
 	if (err)
 		return err;
 
-	vlan_info = rtnl_dereference(real_dev->vlan_info);
+	vlan_info = vlan_get_info(real_dev, vlan_proto);
 	/* vlan_info should be there now. vlan_vid_add took care of it */
 	BUG_ON(!vlan_info);
 
@@ -162,9 +172,15 @@ int register_vlan_dev(struct net_device *dev)
 	if (err < 0)
 		goto out_uninit_applicant;
 
+	err = netdev_upper_dev_link(real_dev, dev);
+	if (err)
+		goto out_uninit_applicant;
+
 	err = register_netdevice(dev);
 	if (err < 0)
-		goto out_uninit_applicant;
+		goto out_upper_dev_unlink;
+	dev->destructor = vlan_free;
+	__module_get(THIS_MODULE);
 
 	/* Account for reference in struct vlan_dev_priv */
 	dev_hold(real_dev);
@@ -180,18 +196,21 @@ int register_vlan_dev(struct net_device *dev)
 
 	return 0;
 
+out_upper_dev_unlink:
+	netdev_upper_dev_unlink(real_dev, dev);
 out_uninit_applicant:
 	if (grp->nr_vlan_devs == 0)
 		vlan_gvrp_uninit_applicant(real_dev);
 out_vid_del:
-	vlan_vid_del(real_dev, vlan_id);
+	vlan_vid_del(real_dev, vlan_id, vlan_proto);
 	return err;
 }
 
 /*  Attach a VLAN device to a mac address (ie Ethernet Card).
  *  Returns 0 if the device was created or a negative error code otherwise.
  */
-static int register_vlan_device(struct net_device *real_dev, u16 vlan_id)
+static int register_vlan_device(struct net_device *real_dev, u16 vlan_id,
+				unsigned short vlan_proto)
 {
 	struct net_device *new_dev;
 	struct net *net = dev_net(real_dev);
@@ -202,7 +221,9 @@ static int register_vlan_device(struct net_device *real_dev, u16 vlan_id)
 	if (vlan_id >= VLAN_VID_MASK)
 		return -ERANGE;
 
-	err = vlan_check_real_dev(real_dev, vlan_id);
+	if (!vlan_proto) vlan_proto = ETH_P_8021Q;
+
+	err = vlan_check_real_dev(real_dev, vlan_id, vlan_proto);
 	if (err < 0)
 		return err;
 
@@ -242,8 +263,10 @@ static int register_vlan_device(struct net_device *real_dev, u16 vlan_id)
 	 * hope the underlying device can handle it.
 	 */
 	new_dev->mtu = real_dev->mtu;
+	new_dev->l2mtu = (real_dev->l2mtu > 4) ? (real_dev->l2mtu - 4) : 0;
 
 	vlan_dev_priv(new_dev)->vlan_id = vlan_id;
+	vlan_dev_priv(new_dev)->vlan_proto = vlan_proto;
 	vlan_dev_priv(new_dev)->real_dev = real_dev;
 	vlan_dev_priv(new_dev)->dent = NULL;
 	vlan_dev_priv(new_dev)->flags = VLAN_FLAG_REORDER_HDR;
@@ -320,10 +343,28 @@ static void __vlan_device_event(struct net_device *dev, unsigned long event)
 	}
 }
 
+static int vlan_device_event_proto(unsigned long event, struct net_device *dev,
+				   unsigned short proto);
+
 static int vlan_device_event(struct notifier_block *unused, unsigned long event,
 			     void *ptr)
 {
 	struct net_device *dev = ptr;
+	int ret;
+
+	if (is_vlan_dev(dev))
+		__vlan_device_event(dev, event);
+
+	ret = vlan_device_event_proto(event, dev, ETH_P_8021Q);
+	if (ret != NOTIFY_DONE)
+		return ret;
+	ret = vlan_device_event_proto(event, dev, ETH_P_8021AD);
+
+	return ret;
+}
+
+static int vlan_device_event_proto(unsigned long event, struct net_device *dev,
+				    unsigned short proto) {
 	struct vlan_group *grp;
 	struct vlan_info *vlan_info;
 	int i, flgs;
@@ -334,14 +375,14 @@ static int vlan_device_event(struct notifier_block *unused, unsigned long event,
 	if (is_vlan_dev(dev))
 		__vlan_device_event(dev, event);
 
-	if ((event == NETDEV_UP) &&
+	if (proto == ETH_P_8021Q && (event == NETDEV_UP) &&
 	    (dev->features & NETIF_F_HW_VLAN_FILTER)) {
 		pr_info("adding VLAN 0 to HW filter on device %s\n",
 			dev->name);
-		vlan_vid_add(dev, 0);
+		vlan_vid_add(dev, 0, proto);
 	}
 
-	vlan_info = rtnl_dereference(dev->vlan_info);
+	vlan_info = vlan_get_info(dev, proto);
 	if (!vlan_info)
 		goto out;
 	grp = &vlan_info->grp;
@@ -462,6 +503,24 @@ static int vlan_device_event(struct notifier_block *unused, unsigned long event,
 		/* Forbid underlaying device to change its type. */
 		return NOTIFY_BAD;
 
+	case NETDEV_CHANGEL2MTU:
+		/* update l2mtu for VLANs */
+		for (i = 0; i < VLAN_N_VID; i++) {
+			int l2mtu;
+
+			vlandev = vlan_group_get_device(grp, i);
+			if (!vlandev)
+				continue;
+
+			l2mtu = (dev->l2mtu > 4) ? (dev->l2mtu - 4) : 0;
+			if (l2mtu != vlandev->l2mtu) {
+				vlandev->l2mtu = l2mtu;
+				if (vlandev->flags & IFF_UP)
+					netdev_l2mtu_change(vlandev);
+			}
+		}
+		break;
+
 	case NETDEV_NOTIFY_PEERS:
 	case NETDEV_BONDING_FAILOVER:
 		/* Propagate to vlan devices */
@@ -570,7 +629,7 @@ static int vlan_ioctl_handler(struct net *net, void __user *arg)
 		err = -EPERM;
 		if (!capable(CAP_NET_ADMIN))
 			break;
-		err = register_vlan_device(dev, args.u.VID);
+		err = register_vlan_device(dev, args.u.VID, args.vlan_proto);
 		break;
 
 	case DEL_VLAN_CMD:

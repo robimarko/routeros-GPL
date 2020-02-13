@@ -120,7 +120,22 @@
 #define PPC4XX_INPUT_THRESHOLD			2
 #define PPC4XX_PD_SIZE				6
 #define PPC4XX_CTX_DONE_INT			0x2000
-#define PPC4XX_PD_DONE_INT			0x8000
+/*
+ * in original kernel source PPC4XX_PD_DONE_INT was 0x8000
+ * and no interrupts were happening, PPC460EX/EXr/GT manual states that
+ * register CRYPTO4XX_INT_EN bit 15 (DESC) is:
+ *      "Specified number of Descriptors (1–63) have
+ *       completed processing. Also occurs if a Descriptor
+ *       has just been processed and there are no more
+ *       input Descriptors available.
+ * but bit 14 (DESCRD) is described as:
+ *      "Command to the Packet Engine to fetch the next
+ *       Packet Descriptor from the PDR."
+ * while for INT MASK/UNMASK registers mnemonics DESC for bit 15 
+ * and DESCRD for bit 14 are the same, but the descriptions are swapped
+ * (probably this is copy paste bug in manual)
+ */
+#define PPC4XX_PD_DONE_INT			0x4000
 #define PPC4XX_BYTE_ORDER			0x22222
 #define PPC4XX_INTERRUPT_CLR			0x3ffff
 #define PPC4XX_PRNG_CTRL_AUTO_EN		0x3

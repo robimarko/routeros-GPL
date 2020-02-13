@@ -1533,6 +1533,10 @@ static int usb_if_uevent(struct device *dev, struct kobj_uevent_env *env)
 		   alt->desc.bInterfaceProtocol))
 		return -ENOMEM;
 
+	if (add_uevent_var(env, "IFNUM=%d",
+		   alt->desc.bInterfaceNumber))
+		return -ENOMEM;
+
 	if (add_uevent_var(env,
 		   "MODALIAS=usb:"
 		   "v%04Xp%04Xd%04Xdc%02Xdsc%02Xdp%02Xic%02Xisc%02Xip%02X",

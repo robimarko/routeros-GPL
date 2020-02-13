@@ -180,7 +180,7 @@
 #define DRV_DESCRIPTION		"Intel(R) PRO/100 Network Driver"
 #define DRV_COPYRIGHT		"Copyright(c) 1999-2006 Intel Corporation"
 
-#define E100_WATCHDOG_PERIOD	(2 * HZ)
+#define E100_WATCHDOG_PERIOD	(1 * HZ)
 #define E100_NAPI_WEIGHT	16
 
 #define FIRMWARE_D101M		"e100/d101m_ucode.bin"

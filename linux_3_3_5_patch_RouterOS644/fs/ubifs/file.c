@@ -1042,6 +1042,9 @@ static int ubifs_writepage(struct page *page, struct writeback_control *wbc)
 	 * the page size, the remaining memory is zeroed when mapped, and
 	 * writes to that region are not written out to the file."
 	 */
+#ifdef CONFIG_HOMECACHE
+	homecache_make_writable(page, 0);
+#endif
 	kaddr = kmap_atomic(page, KM_USER0);
 	memset(kaddr + len, 0, PAGE_CACHE_SIZE - len);
 	flush_dcache_page(page);

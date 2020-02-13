@@ -7,7 +7,7 @@
 
 #define RAS_PORT 1719
 #define Q931_PORT 1720
-#define H323_RTP_CHANNEL_MAX 4	/* Audio, video, FAX and other */
+#define H323_RTP_CHANNEL_MAX 8	/* Audio, video, FAX and other */
 
 /* This structure exists only once per master */
 struct nf_ct_h323_master {

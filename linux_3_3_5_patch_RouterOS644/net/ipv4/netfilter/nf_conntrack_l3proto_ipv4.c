@@ -7,6 +7,7 @@
  * published by the Free Software Foundation.
  */
 
+#include <asm/unaligned.h>
 #include <linux/types.h>
 #include <linux/ip.h>
 #include <linux/netfilter.h>
@@ -44,8 +45,8 @@ static bool ipv4_pkt_to_tuple(const struct sk_buff *skb, unsigned int nhoff,
 	if (ap == NULL)
 		return false;
 
-	tuple->src.u3.ip = ap[0];
-	tuple->dst.u3.ip = ap[1];
+	tuple->src.u3.ip = get_unaligned(&ap[0]);
+	tuple->dst.u3.ip = get_unaligned(&ap[1]);
 
 	return true;
 }
@@ -374,7 +375,6 @@ static int __init nf_conntrack_l3proto_ipv4_init(void)
 	int ret = 0;
 
 	need_conntrack();
-	nf_defrag_ipv4_enable();
 
 	ret = nf_register_sockopt(&so_getorigdst);
 	if (ret < 0) {

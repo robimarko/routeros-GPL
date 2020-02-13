@@ -206,6 +206,7 @@ struct clocksource {
 #define CLOCK_SOURCE_WATCHDOG			0x10
 #define CLOCK_SOURCE_VALID_FOR_HRES		0x20
 #define CLOCK_SOURCE_UNSTABLE			0x40
+#define CLOCK_SOURCE_SUSPEND_NONSTOP		0x80
 
 /* simplify initialization of mask field */
 #define CLOCKSOURCE_MASK(bits) (cycle_t)((bits) < 64 ? ((1ULL<<(bits))-1) : -1)
@@ -354,5 +355,14 @@ extern int clocksource_mmio_init(void __iomem *, const char *,
 	unsigned long, int, unsigned, cycle_t (*)(struct clocksource *));
 
 extern int clocksource_i8253_init(void);
+
+#define CLOCKSOURCE_OF_DECLARE(name, compat, fn) \
+	OF_DECLARE_1(clksrc, name, compat, fn)
+
+#ifdef CONFIG_CLKSRC_OF
+extern void clocksource_of_init(void);
+#else
+static inline void clocksource_of_init(void) {}
+#endif
 
 #endif /* _LINUX_CLOCKSOURCE_H */

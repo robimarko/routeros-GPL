@@ -323,6 +323,39 @@ ENTRY(v7_dma_flush_range)
 	mov	pc, lr
 ENDPROC(v7_dma_flush_range)
 
+ENTRY(v7_dma_flush_range_nosync)
+	dcache_line_size r2, r3
+	sub	r3, r2, #1
+	bic	r0, r0, r3
+#ifdef CONFIG_ARM_ERRATA_764369
+	ALT_SMP(W(dsb))
+	ALT_UP(W(nop))
+#endif
+1:
+	mcr	p15, 0, r0, c7, c14, 1		@ clean & invalidate D / U line
+	add	r0, r0, r2
+	cmp	r0, r1
+	blo	1b
+	mov	pc, lr
+ENDPROC(v7_dma_flush_range_nosync)
+
+ENTRY(v7_dma_inv_range_nosync)
+	dcache_line_size r2, r3
+	sub	r3, r2, #1
+	bic	r0, r0, r3
+#ifdef CONFIG_ARM_ERRATA_764369
+	ALT_SMP(W(dsb))
+	ALT_UP(W(nop))
+#endif
+1:
+	mcr	p15, 0, r0, c7, c6, 1		@ invalidate D / U line
+	add	r0, r0, r2
+	cmp	r0, r1
+	blo	1b
+	mov	pc, lr
+ENDPROC(v7_dma_inv_range_nosync)
+
+
 /*
  *	dma_map_area(start, size, dir)
  *	- start	- kernel virtual start address

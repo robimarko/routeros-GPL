@@ -47,6 +47,15 @@ struct symbol_conf symbol_conf = {
 	.try_vmlinux_path = true,
 	.annotate_src	  = true,
 	.symfs            = "",
+#ifdef __tile__
+	/*
+	 * Use kallsyms for kernel symbol resolution, since by default perf tool
+	 * first try to use /boot/vmlinux(if exist) for kernel symbol
+	 * resolution, but TILE can not get symbols properly from /boot/vmlinux(
+	 * why?).
+	 */
+	.kallsyms_name    = "/proc/kallsyms",
+#endif
 };
 
 int dso__name_len(const struct dso *dso)
@@ -1832,16 +1841,41 @@ static int machine__set_modules_path(struct machine *machine)
 {
 	char *version;
 	char modules_path[PATH_MAX];
+	struct dirent *dent;
+	DIR *dir;
 
 	version = get_kernel_version(machine->root_dir);
 	if (!version)
 		return -1;
 
-	snprintf(modules_path, sizeof(modules_path), "%s/lib/modules/%s/kernel",
+	snprintf(modules_path, sizeof(modules_path), "%s/lib/modules/%s",
 		 machine->root_dir, version);
-	free(version);
 
-	return map_groups__set_modules_path_dir(&machine->kmaps, modules_path);
+	map_groups__set_modules_path_dir(&machine->kmaps, modules_path);
+
+	dir = opendir("/pckg");
+	if (dir) {
+	    while ((dent = readdir(dir)) != NULL) {
+		if (dent->d_name[0] == '.') continue;
+		
+		snprintf(modules_path, sizeof(modules_path),
+			 "/pckg/%s/lib/modules/%s",
+			 dent->d_name, version);
+		map_groups__set_modules_path_dir(&machine->kmaps, modules_path);
+	    }
+	    closedir(dir);
+	}
+
+	snprintf(modules_path, sizeof(modules_path), "/rw/lib/modules/%s",
+		 version);
+	map_groups__set_modules_path_dir(&machine->kmaps, modules_path);
+
+	snprintf(modules_path, sizeof(modules_path), "/flash/lib/modules/%s",
+		 version);
+	map_groups__set_modules_path_dir(&machine->kmaps, modules_path);
+
+	free(version);
+	return 0;
 }
 
 /*

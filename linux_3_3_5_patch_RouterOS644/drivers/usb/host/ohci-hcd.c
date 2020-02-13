@@ -1081,6 +1081,11 @@ MODULE_LICENSE ("GPL");
 #define PS3_SYSTEM_BUS_DRIVER	ps3_ohci_driver
 #endif
 
+#ifdef CONFIG_MIPS_MIKROTIK
+#include "ohci-rb400.c"
+#define PLATFORM_DRIVER		ohci_hcd_rb400_driver
+#endif
+
 #ifdef CONFIG_USB_OHCI_HCD_SSB
 #include "ohci-ssb.c"
 #define SSB_OHCI_DRIVER		ssb_ohci_driver
@@ -1104,6 +1109,11 @@ MODULE_LICENSE ("GPL");
 #ifdef CONFIG_USB_OCTEON_OHCI
 #include "ohci-octeon.c"
 #define PLATFORM_DRIVER		ohci_octeon_driver
+#endif
+
+#ifdef CONFIG_TILEGX
+#include "ohci-tilegx.c"
+#define PLATFORM_DRIVER		ohci_hcd_tilegx_driver
 #endif
 
 #ifdef CONFIG_USB_CNS3XXX_OHCI

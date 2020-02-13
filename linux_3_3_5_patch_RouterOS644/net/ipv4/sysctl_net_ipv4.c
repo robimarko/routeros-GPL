@@ -26,6 +26,9 @@
 #include <net/ping.h>
 #include <net/tcp_memcontrol.h>
 
+/* From fib_frontend.c */
+extern int sysctl_kernel_adds_connected_routes;
+
 static int zero;
 static int tcp_retr1_max = 255;
 static int ip_local_port_range_min[] = { 1, 1 };
@@ -654,6 +657,13 @@ static struct ctl_table ipv4_table[] = {
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "kernel_adds_connected_routes",
+		.data		= &sysctl_kernel_adds_connected_routes,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= &proc_dointvec,
 	},
 	{
 		.procname	= "tcp_cookie_size",

@@ -32,9 +32,9 @@ fw-shipped-$(CONFIG_ADAPTEC_STARFIRE) += adaptec/starfire_rx.bin \
 					 adaptec/starfire_tx.bin
 fw-shipped-$(CONFIG_ATARI_DSP56K) += dsp56k/bootstrap.bin
 fw-shipped-$(CONFIG_ATM_AMBASSADOR) += atmsar11.fw
-fw-shipped-$(CONFIG_BNX2X) += bnx2x/bnx2x-e1-6.2.9.0.fw \
-			      bnx2x/bnx2x-e1h-6.2.9.0.fw \
-			      bnx2x/bnx2x-e2-6.2.9.0.fw
+fw-shipped-$(CONFIG_BNX2X) += bnx2x/bnx2x-e1-7.0.29.0.fw \
+			      bnx2x/bnx2x-e1h-7.0.29.0.fw \
+			      bnx2x/bnx2x-e2-7.0.29.0.fw
 fw-shipped-$(CONFIG_BNX2) += bnx2/bnx2-mips-09-6.2.1a.fw \
 			     bnx2/bnx2-rv2p-09-6.0.17.fw \
 			     bnx2/bnx2-rv2p-09ax-6.0.17.fw \
@@ -141,7 +141,7 @@ fw-shipped-$(CONFIG_USB_VICAM) += vicam/firmware.fw
 fw-shipped-$(CONFIG_VIDEO_CPIA2) += cpia2/stv0672_vp4.bin
 fw-shipped-$(CONFIG_YAM) += yam/1200.bin yam/9600.bin
 
-fw-shipped-all := $(fw-shipped-y) $(fw-shipped-m) $(fw-shipped-)
+fw-shipped-all := $(fw-shipped-y) $(fw-shipped-m)
 
 # Directories which we _might_ need to create, so we have a rule for them.
 firmware-dirs := $(sort $(addprefix $(objtree)/$(obj)/,$(dir $(fw-external-y) $(fw-shipped-all))))

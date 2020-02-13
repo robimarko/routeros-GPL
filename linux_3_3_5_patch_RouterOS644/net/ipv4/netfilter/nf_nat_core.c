@@ -686,6 +686,8 @@ static struct pernet_operations nf_nat_net_ops = {
 	.exit = nf_nat_net_exit,
 };
 
+#define IPPROTO_VRRP 112
+extern const struct nf_nat_protocol nf_nat_protocol_vrrp;
 static int __init nf_nat_init(void)
 {
 	size_t i;
@@ -710,6 +712,7 @@ static int __init nf_nat_init(void)
 	RCU_INIT_POINTER(nf_nat_protos[IPPROTO_TCP], &nf_nat_protocol_tcp);
 	RCU_INIT_POINTER(nf_nat_protos[IPPROTO_UDP], &nf_nat_protocol_udp);
 	RCU_INIT_POINTER(nf_nat_protos[IPPROTO_ICMP], &nf_nat_protocol_icmp);
+	RCU_INIT_POINTER(nf_nat_protos[IPPROTO_VRRP], &nf_nat_protocol_vrrp);
 	spin_unlock_bh(&nf_nat_lock);
 
 	/* Initialize fake conntrack so that NAT will skip it */

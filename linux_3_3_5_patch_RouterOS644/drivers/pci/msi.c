@@ -879,22 +879,27 @@ void pci_disable_msi(struct pci_dev *dev)
 }
 EXPORT_SYMBOL(pci_disable_msi);
 
-/**
- * pci_msix_table_size - return the number of device's MSI-X table entries
+ /**
+ * pci_msix_vec_count - return the number of device's MSI-X table entries
  * @dev: pointer to the pci_dev data structure of MSI-X device function
- */
-int pci_msix_table_size(struct pci_dev *dev)
+ * This function returns the number of device's MSI-X table entries and
+ * therefore the number of MSI-X vectors device is capable of sending.
+ * It returns a negative errno if the device is not capable of sending MSI-X
+ * interrupts.
+ **/
+int pci_msix_vec_count(struct pci_dev *dev)
 {
 	int pos;
 	u16 control;
 
 	pos = pci_find_capability(dev, PCI_CAP_ID_MSIX);
 	if (!pos)
-		return 0;
+		return -EINVAL;
 
 	pci_read_config_word(dev, msi_control_reg(pos), &control);
 	return multi_msix_capable(control);
 }
+EXPORT_SYMBOL(pci_msix_vec_count);
 
 /**
  * pci_enable_msix - configure device's MSI-X capability structure
@@ -923,7 +928,9 @@ int pci_enable_msix(struct pci_dev *dev, struct msix_entry *entries, int nvec)
 	if (status)
 		return status;
 
-	nr_entries = pci_msix_table_size(dev);
+	nr_entries = pci_msix_vec_count(dev);
+	if (nr_entries < 0)
+		return nr_entries;
 	if (nvec > nr_entries)
 		return nr_entries;
 

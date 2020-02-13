@@ -50,6 +50,8 @@ void *virtqueue_detach_unused_buf(struct virtqueue *vq);
 
 unsigned int virtqueue_get_vring_size(struct virtqueue *vq);
 
+int virtqueue_get_queue_index(struct virtqueue *vq);
+
 /**
  * virtio_device - representation of a device using virtio
  * @index: unique position on the virtio bus
@@ -92,6 +94,7 @@ struct virtio_driver {
 	const unsigned int *feature_table;
 	unsigned int feature_table_size;
 	int (*probe)(struct virtio_device *dev);
+	void (*scan)(struct virtio_device *dev);
 	void (*remove)(struct virtio_device *dev);
 	void (*config_changed)(struct virtio_device *dev);
 #ifdef CONFIG_PM

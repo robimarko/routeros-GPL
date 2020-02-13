@@ -34,7 +34,6 @@
 #define SIOCGETSGCNT	(SIOCPROTOPRIVATE+1)
 #define SIOCGETRPF	(SIOCPROTOPRIVATE+2)
 
-#define MAXVIFS		32	
 typedef unsigned long vifbitmap_t;	/* User mode code depends on this lot */
 typedef unsigned short vifi_t;
 #define ALL_VIFS	((vifi_t)(-1))
@@ -81,11 +80,11 @@ struct mfcctl {
 	struct in_addr mfcc_origin;		/* Origin of mcast	*/
 	struct in_addr mfcc_mcastgrp;		/* Group in question	*/
 	vifi_t	mfcc_parent;			/* Where it arrived	*/
-	unsigned char mfcc_ttls[MAXVIFS];	/* Where it is going	*/
 	unsigned int mfcc_pkt_cnt;		/* pkt count for src-grp */
 	unsigned int mfcc_byte_cnt;
 	unsigned int mfcc_wrong_if;
 	int	     mfcc_expire;
+	unsigned mfcc_output_dev_cnt;
 };
 
 /* 
@@ -180,6 +179,9 @@ static inline int ip_mr_init(void)
 #endif
 
 struct vif_device {
+	struct list_head list;
+	unsigned index;
+
 	struct net_device 	*dev;			/* Device we are using */
 	unsigned long	bytes_in,bytes_out;
 	unsigned long	pkt_in,pkt_out;		/* Statistics 			*/
@@ -196,7 +198,7 @@ struct mfc_cache {
 	struct list_head list;
 	__be32 mfc_mcastgrp;			/* Group the entry belongs to 	*/
 	__be32 mfc_origin;			/* Source of packet 		*/
-	vifi_t mfc_parent;			/* Source interface		*/
+	struct vif_device *mfc_parent;		/* Source interface		*/
 	int mfc_flags;				/* Flags on line		*/
 
 	union {
@@ -206,12 +208,11 @@ struct mfc_cache {
 		} unres;
 		struct {
 			unsigned long last_assert;
-			int minvif;
-			int maxvif;
 			unsigned long bytes;
 			unsigned long pkt;
 			unsigned long wrong_if;
-			unsigned char ttls[MAXVIFS];	/* TTL thresholds		*/
+			unsigned output_dev_count;
+			struct vif_device **output_devs;
 		} res;
 	} mfc_un;
 	struct rcu_head	rcu;

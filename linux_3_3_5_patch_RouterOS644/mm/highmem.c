@@ -297,6 +297,38 @@ void kunmap_high(struct page *page)
 }
 
 EXPORT_SYMBOL(kunmap_high);
+
+#ifdef CONFIG_HOMECACHE
+/*
+ * This routine is a helper function for homecache_fix_kpte(); see
+ * its comments for more information on the "finished" argument here.
+ */
+void *kmap_fix_kpte(struct page *page, int finished)
+{
+	unsigned long vaddr, flags;
+	local_irq_save(flags);
+	lock_kmap();
+	vaddr = (unsigned long)page_address(page);
+	if (vaddr) {
+		pte_t *ptep = &pkmap_page_table[PKMAP_NR(vaddr)];
+		if (!finished) {
+			/* Use __set_pte() so we can write the migrating bit. */
+			__set_pte(ptep, pte_mkmigrate(*ptep));
+		} else {
+			/* Rewrite a default kernel PTE for this page.
+			 * We rely on the fact that set_pte() writes the
+			 * present+migrating bits last.
+			 */
+			pte_t pte = mk_pte(page, page_to_kpgprot(page));
+			set_pte(ptep, pte);
+		}
+	}
+	unlock_kmap();
+	local_irq_restore(flags);
+	return (void*) vaddr;
+}
+#endif
+
 #endif
 
 #if defined(HASHED_PAGE_VIRTUAL)

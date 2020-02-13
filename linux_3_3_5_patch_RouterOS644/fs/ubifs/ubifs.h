@@ -1567,7 +1567,7 @@ int ubifs_find_free_space(struct ubifs_info *c, int min_space, int *offs,
 int ubifs_find_free_leb_for_idx(struct ubifs_info *c);
 int ubifs_find_dirty_leb(struct ubifs_info *c, struct ubifs_lprops *ret_lp,
 			 int min_space, int pick_free);
-int ubifs_find_dirty_idx_leb(struct ubifs_info *c);
+int ubifs_find_dirty_idx_leb(struct ubifs_info *c, int lnum_to_skip);
 int ubifs_save_dirty_idx_lnums(struct ubifs_info *c);
 
 /* tnc.c */

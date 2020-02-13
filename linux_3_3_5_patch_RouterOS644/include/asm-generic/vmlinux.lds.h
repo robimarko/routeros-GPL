@@ -149,6 +149,22 @@
 #define TRACE_SYSCALLS()
 #endif
 
+#define ___OF_TABLE(cfg, name)	_OF_TABLE_##cfg(name)
+#define __OF_TABLE(cfg, name)	___OF_TABLE(cfg, name)
+#define OF_TABLE(cfg, name)	__OF_TABLE(config_enabled(cfg), name)
+#define _OF_TABLE_0(name)
+#define _OF_TABLE_1(name)						\
+	. = ALIGN(8);							\
+	VMLINUX_SYMBOL(__##name##_of_table) = .;			\
+	KEEP(*(__##name##_of_table))					\
+	KEEP(*(__##name##_of_table_end))
+
+#define CLKSRC_OF_TABLES()	OF_TABLE(CONFIG_CLKSRC_OF, clksrc)
+#define IRQCHIP_OF_MATCH_TABLE() OF_TABLE(CONFIG_IRQCHIP, irqchip)
+#define CLK_OF_TABLES()		OF_TABLE(CONFIG_COMMON_CLK, clk)
+#define RESERVEDMEM_OF_TABLES()	OF_TABLE(CONFIG_OF_RESERVED_MEM, reservedmem)
+#define CPU_METHOD_OF_TABLES()	OF_TABLE(CONFIG_SMP, cpu_method)
+#define EARLYCON_OF_TABLES()	OF_TABLE(CONFIG_SERIAL_EARLYCON, earlycon)
 
 #define KERNEL_DTB()							\
 	STRUCT_ALIGN();							\
@@ -492,7 +508,13 @@
 	DEV_DISCARD(init.rodata)					\
 	CPU_DISCARD(init.rodata)					\
 	MEM_DISCARD(init.rodata)					\
-	KERNEL_DTB()
+	CLK_OF_TABLES()							\
+	RESERVEDMEM_OF_TABLES()						\
+	CLKSRC_OF_TABLES()						\
+	CPU_METHOD_OF_TABLES()						\
+	KERNEL_DTB()							\
+	IRQCHIP_OF_MATCH_TABLE()					\
+	EARLYCON_OF_TABLES()
 
 #define INIT_TEXT							\
 	*(.init.text)							\
@@ -536,6 +558,7 @@
 		*(.dynbss)						\
 		*(.bss)							\
 		*(COMMON)						\
+		. = (ALIGN(PAGE_SIZE) - .) < 8 ? ALIGN(PAGE_SIZE) + 4 : . ; \
 	}
 
 /*

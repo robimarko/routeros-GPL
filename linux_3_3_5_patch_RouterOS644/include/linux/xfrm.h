@@ -13,7 +13,7 @@
 typedef union {
 	__be32		a4;
 	__be32		a6[4];
-} xfrm_address_t;
+} __attribute__((packed)) xfrm_address_t;
 
 /* Ident of a specific xfrm_state. It is used on input to lookup
  * the state by (spi,daddr,ah/esp) or to store information about
@@ -363,7 +363,7 @@ struct xfrm_usersa_info {
 #define XFRM_STATE_AF_UNSPEC	32
 #define XFRM_STATE_ALIGN4	64
 #define XFRM_STATE_ESN		128
-};
+} __attribute__ ((aligned (8)));
 
 struct xfrm_usersa_id {
 	xfrm_address_t			daddr;

@@ -32,6 +32,8 @@ struct ppp_channel_ops {
 	int	(*start_xmit)(struct ppp_channel *, struct sk_buff *);
 	/* Handle an ioctl call that has come in via /dev/ppp. */
 	int	(*ioctl)(struct ppp_channel *, unsigned int, unsigned long);
+    void	(*attached)(struct ppp_channel *);
+	int	lockless;
 };
 
 struct ppp_channel {
@@ -46,6 +48,7 @@ struct ppp_channel {
 };
 
 #ifdef __KERNEL__
+
 /* Called by the channel when it can send some more data. */
 extern void ppp_output_wakeup(struct ppp_channel *);
 

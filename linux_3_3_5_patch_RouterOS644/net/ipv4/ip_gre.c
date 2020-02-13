@@ -515,7 +515,7 @@ static void ipgre_err(struct sk_buff *skb, u32 info)
 	rcu_read_lock();
 	t = ipgre_tunnel_lookup(skb->dev, iph->daddr, iph->saddr,
 				flags & GRE_KEY ?
-				*(((__be32 *)p) + (grehlen / 4) - 1) : 0,
+				get_unaligned(((__be32 *)p) + (grehlen / 4) - 1) : 0,
 				p[1]);
 	if (t == NULL || t->parms.iph.daddr == 0 ||
 	    ipv4_is_multicast(t->parms.iph.daddr))
@@ -596,11 +596,11 @@ static int ipgre_rcv(struct sk_buff *skb)
 			offset += 4;
 		}
 		if (flags&GRE_KEY) {
-			key = *(__be32*)(h + offset);
+			key = get_unaligned((__be32*)(h + offset));
 			offset += 4;
 		}
 		if (flags&GRE_SEQ) {
-			seqno = ntohl(*(__be32*)(h + offset));
+			seqno = ntohl(get_unaligned((__be32*)(h + offset)));
 			offset += 4;
 		}
 	}
@@ -896,15 +896,15 @@ static netdev_tx_t ipgre_tunnel_xmit(struct sk_buff *skb, struct net_device *dev
 
 		if (tunnel->parms.o_flags&GRE_SEQ) {
 			++tunnel->o_seqno;
-			*ptr = htonl(tunnel->o_seqno);
+			put_unaligned(htonl(tunnel->o_seqno), ptr);
 			ptr--;
 		}
 		if (tunnel->parms.o_flags&GRE_KEY) {
-			*ptr = tunnel->parms.o_key;
+			put_unaligned(tunnel->parms.o_key, ptr);
 			ptr--;
 		}
 		if (tunnel->parms.o_flags&GRE_CSUM) {
-			*ptr = 0;
+			put_unaligned(0, ptr);
 			*(__sum16*)ptr = ip_compute_csum((void*)(iph+1), skb->len - sizeof(struct iphdr));
 		}
 	}

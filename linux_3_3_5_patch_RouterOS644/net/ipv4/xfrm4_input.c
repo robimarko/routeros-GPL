@@ -105,7 +105,7 @@ int xfrm4_udp_encap_rcv(struct sock *sk, struct sk_buff *skb)
 		/* Check if this is a keepalive packet.  If so, eat it. */
 		if (len == 1 && udpdata[0] == 0xff) {
 			goto drop;
-		} else if (len > sizeof(struct ip_esp_hdr) && udpdata32[0] != 0) {
+		} else if (len > sizeof(struct ip_esp_hdr) && get_unaligned(&udpdata32[0]) != 0) {
 			/* ESP Packet without Non-ESP header */
 			len = sizeof(struct udphdr);
 		} else
@@ -117,7 +117,8 @@ int xfrm4_udp_encap_rcv(struct sock *sk, struct sk_buff *skb)
 		if (len == 1 && udpdata[0] == 0xff) {
 			goto drop;
 		} else if (len > 2 * sizeof(u32) + sizeof(struct ip_esp_hdr) &&
-			   udpdata32[0] == 0 && udpdata32[1] == 0) {
+			   get_unaligned(&udpdata32[0]) == 0 &&
+			   get_unaligned(&udpdata32[1]) == 0) {
 
 			/* ESP Packet with Non-IKE marker */
 			len = sizeof(struct udphdr) + 2 * sizeof(u32);

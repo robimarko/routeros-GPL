@@ -265,6 +265,7 @@ IOMAP
   devm_ioport_unmap()
   devm_ioremap()
   devm_ioremap_nocache()
+  devm_ioremap_wc()
   devm_iounmap()
   devm_request_and_ioremap() : checks resource, requests region, ioremaps
   pcim_iomap()

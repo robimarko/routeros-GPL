@@ -64,6 +64,9 @@
 #include <asm/tlb.h>
 #include <asm/tlbflush.h>
 #include <asm/pgtable.h>
+#ifdef CONFIG_HOMECACHE
+#include <asm/homecache.h>
+#endif
 
 #include "internal.h"
 
@@ -633,19 +636,20 @@ int __pte_alloc(struct mm_struct *mm, struct vm_area_struct *vma,
 
 int __pte_alloc_kernel(pmd_t *pmd, unsigned long address)
 {
+	unsigned long flags;
 	pte_t *new = pte_alloc_one_kernel(&init_mm, address);
 	if (!new)
 		return -ENOMEM;
 
 	smp_wmb(); /* See comment in __pte_alloc */
 
-	spin_lock(&init_mm.page_table_lock);
+	spin_lock_irqsave(&init_mm.page_table_lock, flags);
 	if (likely(pmd_none(*pmd))) {	/* Has another populated it ? */
 		pmd_populate_kernel(&init_mm, pmd, new);
 		new = NULL;
 	} else
 		VM_BUG_ON(pmd_trans_splitting(*pmd));
-	spin_unlock(&init_mm.page_table_lock);
+	spin_unlock_irqrestore(&init_mm.page_table_lock, flags);
 	if (new)
 		pte_free_kernel(&init_mm, new);
 	return 0;
@@ -2534,6 +2538,28 @@ static int do_wp_page(struct mm_struct *mm, struct vm_area_struct *vma,
 			page_cache_release(old_page);
 		}
 		if (reuse_swap_page(old_page)) {
+#ifdef CONFIG_HOMECACHE
+			/*
+			 * Make sure our newly-owned page's home cache is
+			 * on the local cpu.  We have to release the page
+			 * table lock for this.  Note that we will end
+			 * up retaking the fault if we re-home the
+			 * page, since we change the PTE, but it seems
+			 * like the cleanest thing to do here.
+			 */
+			page_cache_get(old_page);
+			pte_unmap_unlock(page_table, ptl);
+			homecache_home_page_here(old_page, 0,
+						 vma->vm_page_prot);
+			page_table = pte_offset_map_lock(mm, pmd, address,
+							 &ptl);
+			if (!pte_same(*page_table, orig_pte)) {
+				unlock_page(old_page);
+				goto unlock;
+			}
+			page_cache_release(old_page);
+#endif
+
 			/*
 			 * The page is all ours.  Move it to our anon_vma so
 			 * the rmap code will not search our parent or siblings.
@@ -2587,6 +2613,10 @@ static int do_wp_page(struct mm_struct *mm, struct vm_area_struct *vma,
 				}
 			} else
 				VM_BUG_ON(!PageLocked(old_page));
+#ifdef CONFIG_HOMECACHE
+			homecache_home_page_here(old_page, 0,
+						 vma->vm_page_prot);
+#endif
 
 			/*
 			 * Since we dropped the lock we need to revalidate
@@ -2603,6 +2633,21 @@ static int do_wp_page(struct mm_struct *mm, struct vm_area_struct *vma,
 
 			page_mkwrite = 1;
 		}
+#ifdef CONFIG_HOMECACHE
+		else if (page_home(old_page) == PAGE_HOME_IMMUTABLE) {
+			page_cache_get(old_page);
+			pte_unmap_unlock(page_table, ptl);
+			lock_page(old_page);
+			homecache_home_page_here(old_page, 0,
+						 vma->vm_page_prot);
+			page_table = pte_offset_map_lock(mm, pmd, address,
+							 &ptl);
+			unlock_page(old_page);
+			if (!pte_same(*page_table, orig_pte))
+				goto unlock;
+			page_cache_release(old_page);
+		}
+#endif
 		dirty_page = old_page;
 		get_page(dirty_page);
 
@@ -2668,7 +2713,12 @@ gotten:
 		if (!new_page)
 			goto oom;
 	} else {
+#ifdef CONFIG_HOMECACHE
+		new_page = homecache_alloc_page_vma(GFP_HIGHUSER_MOVABLE,
+						    vma, address);
+#else
 		new_page = alloc_page_vma(GFP_HIGHUSER_MOVABLE, vma, address);
+#endif
 		if (!new_page)
 			goto oom;
 		cow_user_page(new_page, old_page, address, vma);
@@ -3193,7 +3243,12 @@ static int __do_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 		if (unlikely(anon_vma_prepare(vma)))
 			return VM_FAULT_OOM;
 
+#ifdef CONFIG_HOMECACHE
+		cow_page = homecache_alloc_page_vma(GFP_HIGHUSER_MOVABLE,
+						    vma, address);
+#else
 		cow_page = alloc_page_vma(GFP_HIGHUSER_MOVABLE, vma, address);
+#endif
 		if (!cow_page)
 			return VM_FAULT_OOM;
 
@@ -3271,6 +3326,12 @@ static int __do_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 		}
 
 	}
+
+#ifdef CONFIG_HOMECACHE
+	if (!anon)
+		homecache_update_page(page, 0, vma,
+				      (flags & FAULT_FLAG_WRITE) != 0);
+#endif
 
 	page_table = pte_offset_map_lock(mm, pmd, address, &ptl);
 
@@ -3418,6 +3479,15 @@ int handle_pte_fault(struct mm_struct *mm,
 	spinlock_t *ptl;
 
 	entry = *pte;
+#ifdef CONFIG_HOMECACHE
+	/* Wait for any homecache migration to complete. */
+	if (!pte_present(entry)) {
+		while (pte_migrating(entry)) {
+			cpu_relax();
+			entry = *pte;
+		}
+	}
+#endif
 	if (!pte_present(entry)) {
 		if (pte_none(entry)) {
 			if (vma->vm_ops) {

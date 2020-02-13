@@ -286,6 +286,11 @@ struct spi_master {
 	/* flag indicating that the SPI bus is locked for exclusive use */
 	bool			bus_lock_flag;
 
+#if defined(CONFIG_MIPS_MIKROTIK) && defined(CONFIG_CPU_BIG_ENDIAN)
+	unsigned long		locked_at_jiffies;
+	unsigned long		unlocked_at_jiffies;
+#endif // MIPS_MIKROTIK
+
 	/* Setup mode and clock, etc (spi driver may call many times).
 	 *
 	 * IMPORTANT:  this may be called when transfers to another
@@ -452,6 +457,12 @@ struct spi_transfer {
 	dma_addr_t	rx_dma;
 
 	unsigned	cs_change:1;
+	unsigned	verify:1;
+	unsigned	fast_write:1;
+	unsigned	lcd_write_cmd:1;
+	unsigned	lcd_read:1;
+	unsigned	leave_clk_low:1;
+	unsigned	leave_clk_hi:1;
 	u8		bits_per_word;
 	u16		delay_usecs;
 	u32		speed_hz;
@@ -493,6 +504,8 @@ struct spi_message {
 	struct spi_device	*spi;
 
 	unsigned		is_dma_mapped:1;
+	unsigned		fast_read:1;
+	unsigned		ssr_strobe:5;
 
 	/* REVISIT:  we might want a flag affecting the behavior of the
 	 * last transfer ... allowing things like "read 16 bit length L"

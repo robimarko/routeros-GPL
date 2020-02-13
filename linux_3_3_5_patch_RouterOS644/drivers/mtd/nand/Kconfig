@@ -443,6 +443,39 @@ config MTD_ALAUDA
 	  These two (and possibly other) Alauda-based cardreaders for
 	  SmartMedia and xD allow raw flash access.
 
+config MTD_NAND_RB500
+	bool "Support for RB500/RB100 nand"
+	depends on MTD_NAND && MIPS_MIKROTIK
+	select MTD_NAND_RB
+
+config MTD_NAND_RB400
+	bool "Support for RB400 nand"
+	depends on MTD_NAND && MIPS_MIKROTIK && SPI_RB400
+	select MTD_NAND_RB
+
+config MTD_NAND_RB_PPC
+	bool "Support for RB333/RB600/RB1000 nand"
+	depends on MTD_NAND && (RB_PPC || RB1000)
+	select MTD_NAND_RB
+
+config MTD_NAND_RB1200
+	bool "Support for RB1200 nand"
+	depends on MTD_NAND && 44x
+	select MTD_NAND_RB
+
+config MTD_NAND_RB_FCM
+	bool "Support for RB1100AHx2 nand"
+	depends on MTD_NAND && RB1000
+	select MTD_NAND_RB
+
+config MTD_NAND_TILERA
+	bool "Support for tilera nand"
+	depends on MTD_NAND && TILE_GXIO_GPIO
+	select MTD_NAND_RB
+
+config MTD_NAND_RB
+	tristate
+
 config MTD_NAND_ORION
 	tristate "NAND Flash support for Marvell Orion SoC"
 	depends on PLAT_ORION
@@ -535,5 +568,12 @@ config MTD_NAND_FSMC
 	help
 	  Enables support for NAND Flash chips on the ST Microelectronics
 	  Flexible Static Memory Controller (FSMC)
+
+config MTD_NAND_AL
+        tristate "NAND support for Annapurna Labs NAND controller"
+        depends on MTD_NAND && ARCH_ALPINE
+	select MTD_NAND_RB
+        help
+          Enable support for NAND Flash chips on Annapurna Labs NAND controllers.
 
 endif # MTD_NAND

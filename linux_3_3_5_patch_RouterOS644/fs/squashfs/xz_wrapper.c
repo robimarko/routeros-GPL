@@ -36,6 +36,8 @@
 struct squashfs_xz {
 	struct xz_dec *state;
 	struct xz_buf buf;
+	struct mutex decompress_mutex;
+	atomic_t refcnt;
 };
 
 struct comp_opts {
@@ -46,6 +48,8 @@ struct comp_opts {
 static void *squashfs_xz_init(struct squashfs_sb_info *msblk, void *buff,
 	int len)
 {
+	static struct squashfs_xz *last_stream = NULL;
+	static int last_dict_size = 0;
 	struct comp_opts *comp_opts = buff;
 	struct squashfs_xz *stream;
 	int dict_size = msblk->block_size;
@@ -71,6 +75,11 @@ static void *squashfs_xz_init(struct squashfs_sb_info *msblk, void *buff,
 
 	dict_size = max_t(int, dict_size, SQUASHFS_METADATA_SIZE);
 
+	if (last_stream && last_dict_size == dict_size) {
+		atomic_inc(&last_stream->refcnt);
+		return last_stream;
+	}
+
 	stream = kmalloc(sizeof(*stream), GFP_KERNEL);
 	if (stream == NULL) {
 		err = -ENOMEM;
@@ -83,7 +92,11 @@ static void *squashfs_xz_init(struct squashfs_sb_info *msblk, void *buff,
 		err = -ENOMEM;
 		goto failed;
 	}
+	mutex_init(&stream->decompress_mutex);
+	atomic_set(&stream->refcnt, 1);
 
+	last_stream = stream;
+	last_dict_size = dict_size;
 	return stream;
 
 failed:
@@ -96,7 +109,7 @@ static void squashfs_xz_free(void *strm)
 {
 	struct squashfs_xz *stream = strm;
 
-	if (stream) {
+	if (stream && atomic_dec_and_test(&stream->refcnt)) {
 		xz_dec_end(stream->state);
 		kfree(stream);
 	}
@@ -104,14 +117,14 @@ static void squashfs_xz_free(void *strm)
 
 
 static int squashfs_xz_uncompress(struct squashfs_sb_info *msblk, void **buffer,
-	struct buffer_head **bh, int b, int offset, int length, int srclength,
+	struct page **pgs, int b, int offset, int length, int srclength,
 	int pages)
 {
 	enum xz_ret xz_err;
 	int avail, total = 0, k = 0, page = 0;
 	struct squashfs_xz *stream = msblk->stream;
 
-	mutex_lock(&msblk->read_data_mutex);
+	mutex_lock(&stream->decompress_mutex);
 
 	xz_dec_reset(stream->state);
 	stream->buf.in_pos = 0;
@@ -124,11 +137,8 @@ static int squashfs_xz_uncompress(struct squashfs_sb_info *msblk, void **buffer,
 		if (stream->buf.in_pos == stream->buf.in_size && k < b) {
 			avail = min(length, msblk->devblksize - offset);
 			length -= avail;
-			wait_on_buffer(bh[k]);
-			if (!buffer_uptodate(bh[k]))
-				goto release_mutex;
 
-			stream->buf.in = bh[k]->b_data + offset;
+			stream->buf.in = page_address(pgs[k++]) + offset;
 			stream->buf.in_size = avail;
 			stream->buf.in_pos = 0;
 			offset = 0;
@@ -142,9 +152,6 @@ static int squashfs_xz_uncompress(struct squashfs_sb_info *msblk, void **buffer,
 		}
 
 		xz_err = xz_dec_run(stream->state, &stream->buf);
-
-		if (stream->buf.in_pos == stream->buf.in_size && k < b)
-			put_bh(bh[k++]);
 	} while (xz_err == XZ_OK);
 
 	if (xz_err != XZ_STREAM_END) {
@@ -158,14 +165,11 @@ static int squashfs_xz_uncompress(struct squashfs_sb_info *msblk, void **buffer,
 	}
 
 	total += stream->buf.out_pos;
-	mutex_unlock(&msblk->read_data_mutex);
+	mutex_unlock(&stream->decompress_mutex);
 	return total;
 
 release_mutex:
-	mutex_unlock(&msblk->read_data_mutex);
-
-	for (; k < b; k++)
-		put_bh(bh[k]);
+	mutex_unlock(&stream->decompress_mutex);
 
 	return -EIO;
 }

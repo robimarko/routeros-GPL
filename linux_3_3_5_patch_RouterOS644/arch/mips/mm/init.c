@@ -43,6 +43,10 @@
 #include <asm/tlb.h>
 #include <asm/fixmap.h>
 
+#ifdef CONFIG_MIPS_MIKROTIK
+#include <asm/rb/boards.h>
+#endif
+
 /* Atomicity and interruptability */
 #ifdef CONFIG_MIPS_MT_SMTC
 
@@ -178,7 +182,7 @@ void *kmap_coherent(struct page *page, unsigned long addr)
 
 #define UNIQUE_ENTRYHI(idx) (CKSEG0 + ((idx) << (PAGE_SHIFT + 1)))
 
-void kunmap_coherent(void)
+void kunmap_coherent()
 {
 #ifndef CONFIG_MIPS_MT_SMTC
 	unsigned int wired;
@@ -338,6 +342,16 @@ void __init paging_init(void)
 
 #ifdef CONFIG_ZONE_DMA
 	max_zone_pfns[ZONE_DMA] = MAX_DMA_PFN;
+#if defined(CONFIG_MIPS_MIKROTIK)
+	if (mips_machgroup != MACH_GROUP_MT_RB100)
+		max_zone_pfns[ZONE_DMA] = max_low_pfn;
+	if (mips_machgroup == MACH_GROUP_MT_MMIPS) {
+		unsigned long pfn_192mb =
+		    PFN_DOWN(virt_to_phys((void *)(PAGE_OFFSET + (192 << 20))));
+		if (max_low_pfn > pfn_192mb)
+			max_zone_pfns[ZONE_DMA] = pfn_192mb;
+	}
+#endif
 #endif
 #ifdef CONFIG_ZONE_DMA32
 	max_zone_pfns[ZONE_DMA32] = MAX_DMA32_PFN;

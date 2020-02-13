@@ -59,7 +59,8 @@ static inline struct sk_buff *dequeue_skb(struct Qdisc *q)
 		struct netdev_queue *txq;
 
 		/* check the reason of requeuing without tx lock first */
-		txq = netdev_get_tx_queue(dev, skb_get_queue_mapping(skb));
+		txq = dev_pick_tx(dev, skb);
+//		txq = netdev_get_tx_queue(dev, skb_get_queue_mapping(skb));
 		if (!netif_xmit_frozen_or_stopped(txq)) {
 			q->gso_skb = NULL;
 			q->q.qlen--;
@@ -120,11 +121,24 @@ int sch_direct_xmit(struct sk_buff *skb, struct Qdisc *q,
 	/* And release qdisc */
 	spin_unlock(root_lock);
 
+	if (txq->xmit_lock_owner != smp_processor_id()) {
 	HARD_TX_LOCK(dev, txq, smp_processor_id());
 	if (!netif_xmit_frozen_or_stopped(txq))
 		ret = dev_hard_start_xmit(skb, dev, txq);
 
 	HARD_TX_UNLOCK(dev, txq);
+	}
+	else {
+		kfree_skb(skb);
+		ret = NETDEV_TX_OK;
+		if (net_ratelimit()) {
+			static unsigned topics[] = { 61, 2, 0 }; // intrerface,warning
+			void kernel_log_message(unsigned *topics, const char *format, ...);
+			kernel_log_message(topics, "*%08x: tx loop on interface (2)", dev->ifindex);
+			printk(KERN_CRIT "sch_direct_xmit: xmit loop on %s\n", dev->name);
+			WARN_ON(1);
+		}
+	}
 
 	spin_lock(root_lock);
 
@@ -182,7 +196,8 @@ static inline int qdisc_restart(struct Qdisc *q)
 	WARN_ON_ONCE(skb_dst_is_noref(skb));
 	root_lock = qdisc_lock(q);
 	dev = qdisc_dev(q);
-	txq = netdev_get_tx_queue(dev, skb_get_queue_mapping(skb));
+	txq = dev_pick_tx(dev, skb);
+//	txq = netdev_get_tx_queue(dev, skb_get_queue_mapping(skb));
 
 	return sch_direct_xmit(skb, q, dev, txq, root_lock);
 }
@@ -205,6 +220,7 @@ void __qdisc_run(struct Qdisc *q)
 
 	qdisc_run_end(q);
 }
+EXPORT_SYMBOL(__qdisc_run);
 
 unsigned long dev_trans_start(struct net_device *dev)
 {
@@ -732,7 +748,7 @@ static void transition_one_qdisc(struct net_device *dev,
 		clear_bit(__QDISC_STATE_DEACTIVATED, &new_qdisc->state);
 
 	rcu_assign_pointer(dev_queue->qdisc, new_qdisc);
-	if (need_watchdog_p && new_qdisc != &noqueue_qdisc) {
+	if (need_watchdog_p) {
 		dev_queue->trans_start = 0;
 		*need_watchdog_p = 1;
 	}

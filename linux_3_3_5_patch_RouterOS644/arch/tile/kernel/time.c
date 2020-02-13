@@ -35,7 +35,8 @@
  */
 
 /* How many cycles per second we are running at. */
-static cycles_t cycles_per_sec __write_once;
+cycles_t cycles_per_sec __write_once;
+EXPORT_SYMBOL(cycles_per_sec);
 
 cycles_t get_clock_rate(void)
 {

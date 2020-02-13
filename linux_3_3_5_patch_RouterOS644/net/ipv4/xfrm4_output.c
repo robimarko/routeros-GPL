@@ -94,6 +94,7 @@ int xfrm4_output(struct sk_buff *skb)
 	struct dst_entry *dst = skb_dst(skb);
 	struct xfrm_state *x = dst->xfrm;
 
+	skb->dev = dst->dev;
 	return NF_HOOK_COND(NFPROTO_IPV4, NF_INET_POST_ROUTING, skb,
 			    NULL, dst->dev,
 			    x->outer_mode->afinfo->output_finish,

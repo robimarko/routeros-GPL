@@ -242,7 +242,8 @@ int ip6_xmit(struct sock *sk, struct sk_buff *skb, struct flowi6 *fl6,
 	hdr->daddr = *first_hop;
 
 	skb->priority = sk->sk_priority;
-	skb->mark = sk->sk_mark;
+	skb->mark = 0;
+	skb->prmark = sk->sk_mark;
 
 	mtu = dst_mtu(dst);
 	if ((skb->len <= mtu) || skb->local_df || skb_is_gso(skb)) {
@@ -1614,7 +1615,8 @@ int ip6_push_pending_frames(struct sock *sk)
 	hdr->daddr = *final_dst;
 
 	skb->priority = sk->sk_priority;
-	skb->mark = sk->sk_mark;
+	skb->mark = 0;
+	skb->prmark = sk->sk_mark;
 
 	skb_dst_set(skb, dst_clone(&rt->dst));
 	IP6_UPD_PO_STATS(net, rt->rt6i_idev, IPSTATS_MIB_OUT, skb->len);

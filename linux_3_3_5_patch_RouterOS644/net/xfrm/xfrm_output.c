@@ -115,6 +115,7 @@ int xfrm_output_resume(struct sk_buff *skb, int err)
 {
 	while (likely((err = xfrm_output_one(skb, err)) == 0)) {
 		nf_reset(skb);
+		skb_reset_mark(skb);
 
 		err = skb_dst(skb)->ops->local_out(skb);
 		if (unlikely(err != 1))

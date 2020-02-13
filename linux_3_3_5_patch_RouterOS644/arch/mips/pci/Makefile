@@ -7,12 +7,18 @@ obj-y				+= pci.o
 #
 # PCI bus host bridge specific code
 #
+obj-$(CONFIG_PCI_ADM5120)	+= ops-adm5120.o pci-adm5120.o
 obj-$(CONFIG_MIPS_BONITO64)	+= ops-bonito64.o
 obj-$(CONFIG_PCI_GT64XXX_PCI0)	+= ops-gt64xxx_pci0.o
 obj-$(CONFIG_MIPS_MSC)		+= ops-msc.o
 obj-$(CONFIG_MIPS_NILE4)	+= ops-nile4.o
 obj-$(CONFIG_SOC_TX3927)	+= ops-tx3927.o
 obj-$(CONFIG_PCI_VR41XX)	+= ops-vr41xx.o pci-vr41xx.o
+obj-$(CONFIG_MIPS_MIKROTIK)	+= pci-rb.o
+obj-$(CONFIG_MIPS_MIKROTIK)	+= ops-rb500.o
+obj-$(CONFIG_MIPS_MIKROTIK)	+= ops-rb400.o
+obj-$(CONFIG_MIPS_MIKROTIK)	+= ops-rb100.o
+obj-$(CONFIG_MIPS_MIKROTIK)	+= ops-rb700.o
 obj-$(CONFIG_NEC_MARKEINS)	+= ops-emma2rh.o pci-emma2rh.o fixup-emma2rh.o
 obj-$(CONFIG_PCI_TX4927)	+= ops-tx4927.o
 obj-$(CONFIG_BCM47XX)		+= pci-bcm47xx.o

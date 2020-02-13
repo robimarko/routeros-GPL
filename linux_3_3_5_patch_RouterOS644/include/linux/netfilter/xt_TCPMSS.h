@@ -5,6 +5,7 @@
 
 struct xt_tcpmss_info {
 	__u16 mss;
+	__u8 passthrough;
 };
 
 #define XT_TCPMSS_CLAMP_PMTU 0xffff

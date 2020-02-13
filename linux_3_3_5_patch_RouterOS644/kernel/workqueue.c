@@ -1887,6 +1887,8 @@ __acquires(&gcwq->lock)
 		dump_stack();
 	}
 
+        cond_resched();
+
 	spin_lock_irq(&gcwq->lock);
 
 	/* clear cpu intensive status */

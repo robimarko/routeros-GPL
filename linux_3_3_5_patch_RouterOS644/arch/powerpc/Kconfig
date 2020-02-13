@@ -152,6 +152,7 @@ config COMPAT
 	bool
 	default y if PPC64
 	select COMPAT_BINFMT_ELF
+	select ARCH_WANT_OLD_COMPAT_IPC
 
 config SYSVIPC_COMPAT
 	bool
@@ -329,7 +330,7 @@ config SWIOTLB
 
 config HOTPLUG_CPU
 	bool "Support for enabling/disabling CPUs"
-	depends on SMP && HOTPLUG && EXPERIMENTAL && (PPC_PSERIES || PPC_PMAC || PPC_POWERNV)
+	depends on SMP && HOTPLUG && EXPERIMENTAL && (PPC_PSERIES || PPC_PMAC || PPC_POWERNV || PPC_85xx)
 	---help---
 	  Say Y here to be able to disable and re-enable individual
 	  CPUs at runtime on SMP machines.
@@ -700,6 +701,11 @@ config FSL_GTM
 	depends on PPC_83xx || QUICC_ENGINE || CPM2
 	help
 	  Freescale General-purpose Timers support
+
+config HAS_FSL_QBMAN
+        bool "Datapath Acceleration Queue and Buffer management"
+        help
+          Datapath Acceleration Queue and Buffer management
 
 # Yes MCA RS/6000s exist but Linux-PPC does not currently support any
 config MCA

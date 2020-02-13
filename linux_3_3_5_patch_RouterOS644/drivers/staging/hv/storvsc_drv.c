@@ -1456,6 +1456,8 @@ MODULE_DEVICE_TABLE(vmbus, id_table);
 static int storvsc_probe(struct hv_device *device,
 			const struct hv_vmbus_device_id *dev_id)
 {
+	if (hv_vmbus_disabled()) return -ENODEV;
+
 	int ret;
 	struct Scsi_Host *host;
 	struct hv_host_device *host_dev;
@@ -1553,6 +1555,7 @@ static struct hv_driver storvsc_drv = {
 
 static int __init storvsc_drv_init(void)
 {
+	if (hv_vmbus_disabled()) return 0;
 	u32 max_outstanding_req_per_channel;
 
 	/*

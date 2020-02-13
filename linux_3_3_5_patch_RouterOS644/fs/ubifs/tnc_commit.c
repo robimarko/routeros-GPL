@@ -233,10 +233,12 @@ static int layout_leb_in_gaps(struct ubifs_info *c, int *p)
 	struct ubifs_scan_leb *sleb;
 	struct ubifs_scan_node *snod;
 	int lnum, dirt = 0, gap_start, gap_end, err, written, tot_written;
+	int lnum_to_skip = -99999999;	/* invalid lnum and invalid errno */
 
 	tot_written = 0;
 	/* Get an index LEB with lots of obsolete index nodes */
-	lnum = ubifs_find_dirty_idx_leb(c);
+retry:
+	lnum = ubifs_find_dirty_idx_leb(c, lnum_to_skip);
 	if (lnum < 0)
 		/*
 		 * There also may be dirt in the index head that could be
@@ -252,8 +254,14 @@ static int layout_leb_in_gaps(struct ubifs_info *c, int *p)
 	 */
 	sleb = ubifs_scan(c, lnum, 0, c->ileb_buf, 0);
 	c->ileb_len = 0;
-	if (IS_ERR(sleb))
+	if (IS_ERR(sleb)) {
+		if (lnum_to_skip < 0) {
+			printk("ubifs: find some other leb\n");
+			lnum_to_skip = lnum;
+			goto retry;
+		}
 		return PTR_ERR(sleb);
+	}
 	gap_start = 0;
 	list_for_each_entry(snod, &sleb->nodes, list) {
 		struct ubifs_idx_node *idx;

@@ -80,6 +80,10 @@ static int __init ppc44x_probe(void)
 	return 0;
 }
 
+void change_latch(unsigned char set, unsigned char clear) {
+}
+EXPORT_SYMBOL(change_latch);
+
 define_machine(ppc44x_simple) {
 	.name = "PowerPC 44x Platform",
 	.probe = ppc44x_probe,

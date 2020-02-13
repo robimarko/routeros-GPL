@@ -85,9 +85,6 @@ struct virtio_mmio_vq_info {
 	/* the number of entries in the queue */
 	unsigned int num;
 
-	/* the index of the queue */
-	int queue_index;
-
 	/* the virtual address of the ring queue */
 	void *queue;
 
@@ -179,11 +176,10 @@ static void vm_reset(struct virtio_device *vdev)
 static void vm_notify(struct virtqueue *vq)
 {
 	struct virtio_mmio_device *vm_dev = to_virtio_mmio_device(vq->vdev);
-	struct virtio_mmio_vq_info *info = vq->priv;
 
 	/* We write the queue's selector into the notification register to
 	 * signal the other end */
-	writel(info->queue_index, vm_dev->base + VIRTIO_MMIO_QUEUE_NOTIFY);
+	writel(virtqueue_get_queue_index(vq), vm_dev->base + VIRTIO_MMIO_QUEUE_NOTIFY);
 }
 
 /* Notify all virtqueues on an interrupt. */
@@ -224,6 +220,7 @@ static void vm_del_vq(struct virtqueue *vq)
 	struct virtio_mmio_device *vm_dev = to_virtio_mmio_device(vq->vdev);
 	struct virtio_mmio_vq_info *info = vq->priv;
 	unsigned long flags, size;
+	unsigned int index = virtqueue_get_queue_index(vq);
 
 	spin_lock_irqsave(&vm_dev->lock, flags);
 	list_del(&info->node);
@@ -232,7 +229,7 @@ static void vm_del_vq(struct virtqueue *vq)
 	vring_del_virtqueue(vq);
 
 	/* Select and deactivate the queue */
-	writel(info->queue_index, vm_dev->base + VIRTIO_MMIO_QUEUE_SEL);
+	writel(index, vm_dev->base + VIRTIO_MMIO_QUEUE_SEL);
 	writel(0, vm_dev->base + VIRTIO_MMIO_QUEUE_PFN);
 
 	size = PAGE_ALIGN(vring_size(info->num, VIRTIO_MMIO_VRING_ALIGN));
@@ -263,6 +260,9 @@ static struct virtqueue *vm_setup_vq(struct virtio_device *vdev, unsigned index,
 	unsigned long flags, size;
 	int err;
 
+	if (!name)
+		return NULL;
+
 	/* Select the queue we're interested in */
 	writel(index, vm_dev->base + VIRTIO_MMIO_QUEUE_SEL);
 
@@ -278,7 +278,6 @@ static struct virtqueue *vm_setup_vq(struct virtio_device *vdev, unsigned index,
 		err = -ENOMEM;
 		goto error_kmalloc;
 	}
-	info->queue_index = index;
 
 	/* Allocate pages for the queue - start with a queue as big as
 	 * possible (limited by maximum size allowed by device), drop down
@@ -310,7 +309,7 @@ static struct virtqueue *vm_setup_vq(struct virtio_device *vdev, unsigned index,
 			vm_dev->base + VIRTIO_MMIO_QUEUE_PFN);
 
 	/* Create the vring */
-	vq = vring_new_virtqueue(info->num, VIRTIO_MMIO_VRING_ALIGN, vdev,
+	vq = vring_new_virtqueue(index, info->num, VIRTIO_MMIO_VRING_ALIGN, vdev,
 				 true, info->queue, vm_notify, callback, name);
 	if (!vq) {
 		err = -ENOMEM;

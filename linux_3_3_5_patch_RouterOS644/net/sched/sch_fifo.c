@@ -53,6 +53,7 @@ static int fifo_init(struct Qdisc *sch, struct nlattr *opt)
 	bool bypass;
 	bool is_bfifo = sch->ops == &bfifo_qdisc_ops;
 
+	sch->flags |= TCQ_F_CAN_BYPASS;
 	if (opt == NULL) {
 		u32 limit = qdisc_dev(sch)->tx_queue_len ? : 1;
 

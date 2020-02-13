@@ -345,6 +345,7 @@ int udpv6_recvmsg(struct kiocb *iocb, struct sock *sk,
 	int peeked;
 	int err;
 	int is_udplite = IS_UDPLITE(sk);
+	bool checksum_valid = false;
 	int is_udp4;
 	bool slow;
 
@@ -379,11 +380,12 @@ try_again:
 	 */
 
 	if (copied < ulen || UDP_SKB_CB(skb)->partial_cov) {
-		if (udp_lib_checksum_complete(skb))
+		checksum_valid = !udp_lib_checksum_complete(skb);
+		if (!checksum_valid)
 			goto csum_copy_err;
 	}
 
-	if (skb_csum_unnecessary(skb))
+	if (checksum_valid || skb_csum_unnecessary(skb))
 		err = skb_copy_datagram_iovec(skb, sizeof(struct udphdr),
 					      msg->msg_iov, copied       );
 	else {
@@ -512,8 +514,10 @@ int udpv6_queue_rcv_skb(struct sock * sk, struct sk_buff *skb)
 	if (!ipv6_addr_any(&inet6_sk(sk)->daddr))
 		sock_rps_save_rxhash(sk, skb);
 
+	if (skb_dst(skb)) {
 	if (!xfrm6_policy_check(sk, XFRM_POLICY_IN, skb))
 		goto drop;
+	}
 
 	/*
 	 * UDP-Lite specific tests, ignored on UDP sockets (see net/ipv4/udp.c).

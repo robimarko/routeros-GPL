@@ -3948,13 +3948,13 @@ static int tcp_parse_aligned_timestamp(struct tcp_sock *tp, const struct tcphdr 
 {
 	const __be32 *ptr = (const __be32 *)(th + 1);
 
-	if (*ptr == htonl((TCPOPT_NOP << 24) | (TCPOPT_NOP << 16)
+	if (get_unaligned_be32(ptr) == htonl((TCPOPT_NOP << 24) | (TCPOPT_NOP << 16)
 			  | (TCPOPT_TIMESTAMP << 8) | TCPOLEN_TIMESTAMP)) {
 		tp->rx_opt.saw_tstamp = 1;
 		++ptr;
-		tp->rx_opt.rcv_tsval = ntohl(*ptr);
+		tp->rx_opt.rcv_tsval = ntohl(get_unaligned(ptr));
 		++ptr;
-		tp->rx_opt.rcv_tsecr = ntohl(*ptr);
+		tp->rx_opt.rcv_tsecr = ntohl(get_unaligned(ptr));
 		return 1;
 	}
 	return 0;

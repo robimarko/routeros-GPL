@@ -187,6 +187,11 @@ extern int _cond_resched(void);
 		(__x < 0) ? -__x : __x;		\
 	})
 
+struct notifier_block;
+
+extern int register_panic_notifier(struct notifier_block *nb);
+extern int unregister_panic_notifier(struct notifier_block *nb);
+
 #ifdef CONFIG_PROVE_LOCKING
 void might_fault(void);
 #else

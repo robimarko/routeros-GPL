@@ -233,6 +233,7 @@ gnet_stats_finish_copy(struct gnet_dump *d)
 	if (d->tail)
 		d->tail->nla_len = skb_tail_pointer(d->skb) - (u8 *)d->tail;
 
+/*
 	if (d->compat_tc_stats)
 		if (gnet_stats_copy(d, d->compat_tc_stats, &d->tc_stats,
 			sizeof(d->tc_stats)) < 0)
@@ -243,6 +244,7 @@ gnet_stats_finish_copy(struct gnet_dump *d)
 			d->xstats_len) < 0)
 			return -1;
 	}
+*/
 
 	spin_unlock_bh(d->lock);
 	return 0;

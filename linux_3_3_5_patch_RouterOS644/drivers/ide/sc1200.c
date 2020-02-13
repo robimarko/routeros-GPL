@@ -297,6 +297,7 @@ static const struct ide_port_info sc1200_chipset __devinitdata = {
 	.dma_ops	= &sc1200_dma_ops,
 	.host_flags	= IDE_HFLAG_SERIALIZE |
 			  IDE_HFLAG_POST_SET_MODE |
+			  IDE_HFLAG_NO_DMA |
 			  IDE_HFLAG_ABUSE_DMA_MODES,
 	.pio_mask	= ATA_PIO4,
 	.mwdma_mask	= ATA_MWDMA2,

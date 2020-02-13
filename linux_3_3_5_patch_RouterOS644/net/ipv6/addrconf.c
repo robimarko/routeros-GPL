@@ -239,6 +239,8 @@ const struct in6_addr in6addr_loopback = IN6ADDR_LOOPBACK_INIT;
 const struct in6_addr in6addr_linklocal_allnodes = IN6ADDR_LINKLOCAL_ALLNODES_INIT;
 const struct in6_addr in6addr_linklocal_allrouters = IN6ADDR_LINKLOCAL_ALLROUTERS_INIT;
 
+static unsigned char zero_macaddr[ETH_ALEN];
+
 /* Check if a valid qdisc is available */
 static inline bool addrconf_qdisc_ok(const struct net_device *dev)
 {
@@ -2232,8 +2234,10 @@ static int inet6_addr_add(struct net *net, int ifindex, const struct in6_addr *p
 		ifp->tstamp = jiffies;
 		spin_unlock_bh(&ifp->lock);
 
+		if (0 /*sysctl_kernel_adds_connected_routes*/) {   
 		addrconf_prefix_route(&ifp->addr, ifp->prefix_len, dev,
 				      expires, flags);
+		}
 		/*
 		 * Note that section 3.1 of RFC 4429 indicates
 		 * that the Optimistic flag should not be set for
@@ -2451,6 +2455,10 @@ static void addrconf_dev_config(struct net_device *dev)
 	if (IS_ERR(idev))
 		return;
 
+        /* do not generate the link-local address if interface has zero mac address */
+        if (!memcmp(dev->dev_addr, zero_macaddr, ETH_ALEN))
+		return;
+
 	memset(&addr, 0, sizeof(struct in6_addr));
 	addr.s6_addr32[0] = htonl(0xFE800000);
 
@@ -2576,6 +2584,7 @@ static int addrconf_notify(struct notifier_block *this, unsigned long event,
 	struct inet6_dev *idev = __in6_dev_get(dev);
 	int run_pending = 0;
 	int err;
+	struct in6_addr addr_buf;
 
 	switch (event) {
 	case NETDEV_REGISTER:
@@ -2675,6 +2684,14 @@ static int addrconf_notify(struct notifier_block *this, unsigned long event,
 			 */
 			if (dev->mtu < IPV6_MIN_MTU)
 				addrconf_ifdown(dev, 1);
+		}
+		break;
+
+	case NETDEV_CHANGEADDR:
+		/* if there is idev, but no link-local address, try to create one. */
+		if (idev && (idev->if_flags & IF_READY)
+			&& ipv6_get_lladdr(dev, &addr_buf, 0) != 0) {
+			addrconf_dev_config(dev);
 		}
 		break;
 
@@ -3035,8 +3052,8 @@ static void addrconf_dad_completed(struct inet6_ifaddr *ifp)
 	   router advertisements, start sending router solicitations.
 	 */
 
-	if (((ifp->idev->cnf.accept_ra == 1 && !ifp->idev->cnf.forwarding) ||
-	     ifp->idev->cnf.accept_ra == 2) &&
+	if (((dev_net(dev)->ipv6.devconf_all->accept_ra == 1 && !ifp->idev->cnf.forwarding) ||
+	     dev_net(dev)->ipv6.devconf_all->accept_ra == 2) &&
 	    ifp->idev->cnf.rtr_solicits > 0 &&
 	    (dev->flags&IFF_LOOPBACK) == 0 &&
 	    (ipv6_addr_type(&ifp->addr) & IPV6_ADDR_LINKLOCAL)) {
@@ -4285,7 +4302,7 @@ int addrconf_sysctl_forward(ctl_table *ctl, int write,
 	return ret;
 }
 
-static void dev_disable_change(struct inet6_dev *idev)
+void dev_disable_change(struct inet6_dev *idev)
 {
 	if (!idev || !idev->dev)
 		return;
@@ -4295,6 +4312,7 @@ static void dev_disable_change(struct inet6_dev *idev)
 	else
 		addrconf_notify(NULL, NETDEV_UP, idev->dev);
 }
+EXPORT_SYMBOL(dev_disable_change);
 
 static void addrconf_disable_change(struct net *net, __s32 newf)
 {
@@ -4665,6 +4683,7 @@ static void __addrconf_sysctl_unregister(struct ipv6_devconf *p)
 
 static void addrconf_sysctl_register(struct inet6_dev *idev)
 {
+	return; // speed up interface registration
 	neigh_sysctl_register(idev->dev, idev->nd_parms, "ipv6",
 			      &ndisc_ifinfo_sysctl_change);
 	__addrconf_sysctl_register(dev_net(idev->dev), idev->dev->name,
@@ -4673,6 +4692,7 @@ static void addrconf_sysctl_register(struct inet6_dev *idev)
 
 static void addrconf_sysctl_unregister(struct inet6_dev *idev)
 {
+	return; // speed up interface registration
 	__addrconf_sysctl_unregister(&idev->cnf);
 	neigh_sysctl_unregister(idev->nd_parms);
 }

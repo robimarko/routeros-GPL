@@ -27,6 +27,9 @@
 #include <linux/writeback.h>
 #include <linux/backing-dev.h>
 #include <linux/pagevec.h>
+#ifdef CONFIG_HOMECACHE
+#include <asm/homecache.h>
+#endif
 #include <linux/cleancache.h>
 
 /*
@@ -564,6 +567,9 @@ page_is_mapped:
 
 		if (page->index > end_index || !offset)
 			goto confused;
+#ifdef CONFIG_HOMECACHE
+		homecache_make_writable(page, PAGE_CACHE_SHIFT - PAGE_SHIFT);
+#endif
 		zero_user_segment(page, offset, PAGE_CACHE_SIZE);
 	}
 

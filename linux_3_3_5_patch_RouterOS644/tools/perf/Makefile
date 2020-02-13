@@ -9,7 +9,7 @@ include config/utilities.mak
 
 ifneq ($(OUTPUT),)
 # check that the output directory actually exists
-OUTDIR := $(shell cd $(OUTPUT) && /bin/pwd)
+OUTDIR := $(shell cd $(OUTPUT) && pwd)
 $(if $(OUTDIR),, $(error output directory "$(OUTPUT)" does not exist))
 endif
 
@@ -43,7 +43,7 @@ ARCH ?= $(shell echo $(uname_M) | sed -e s/i.86/i386/ -e s/sun4u/sparc64/ \
 				  -e s/arm.*/arm/ -e s/sa110/arm/ \
 				  -e s/s390x/s390/ -e s/parisc64/parisc/ \
 				  -e s/ppc.*/powerpc/ -e s/mips.*/mips/ \
-				  -e s/sh[234].*/sh/ )
+				  -e s/sh[234].*/sh/ -e s/tile*/tile/ )
 
 CC = $(CROSS_COMPILE)gcc
 AR = $(CROSS_COMPILE)ar

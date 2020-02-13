@@ -923,8 +923,9 @@ extern unsigned long thread_saved_pc(struct task_struct *tsk);
 /* This decides where the kernel will search for a free chunk of vm
  * space during mmap's.
  */
+/* NOTE: limit 32bit processes to 2Gb for now, see libuc++/functional */
 #define IA32_PAGE_OFFSET	((current->personality & ADDR_LIMIT_3GB) ? \
-					0xc0000000 : 0xFFFFe000)
+					0xc0000000 : 0x80000000)
 
 #define TASK_SIZE		(test_thread_flag(TIF_IA32) ? \
 					IA32_PAGE_OFFSET : TASK_SIZE_MAX)

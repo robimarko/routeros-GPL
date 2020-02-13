@@ -105,7 +105,7 @@ struct frag_hdr {
 	__u8	reserved;
 	__be16	frag_off;
 	__be32	identification;
-};
+} __attribute__((packed));	/* required for some archs */
 
 #define	IP6_MF	0x0001
 
@@ -354,7 +354,7 @@ static inline int __ipv6_prefix_equal(const __be32 *a1, const __be32 *a2,
 
 	/* check incomplete u32 in prefix */
 	pbi = prefixlen & 0x1f;
-	if (pbi && ((a1[pdw] ^ a2[pdw]) & htonl((0xffffffff) << (32 - pbi))))
+	if (pbi && ((get_unaligned((u32 *)&a1[pdw]) ^ get_unaligned((u32 *)&a2[pdw])) & htonl((0xffffffff) << (32 - pbi))))
 		return 0;
 
 	return 1;
@@ -438,7 +438,7 @@ static inline int __ipv6_addr_diff(const void *token1, const void *token2, int a
 	addrlen >>= 2;
 
 	for (i = 0; i < addrlen; i++) {
-		__be32 xb = a1[i] ^ a2[i];
+		__be32 xb = get_unaligned(&a1[i]) ^ get_unaligned(&a2[i]);
 		if (xb)
 			return i * 32 + 31 - __fls(ntohl(xb));
 	}

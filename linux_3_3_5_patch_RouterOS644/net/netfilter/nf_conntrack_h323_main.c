@@ -1463,7 +1463,9 @@ static int process_urq(struct sk_buff *skb, struct nf_conn *ct,
 	}
 
 	/* Clear old expect */
+	spin_lock_bh(&nf_conntrack_lock);
 	nf_ct_remove_expectations(ct);
+	spin_unlock_bh(&nf_conntrack_lock);
 	info->sig_port[dir] = 0;
 	info->sig_port[!dir] = 0;
 

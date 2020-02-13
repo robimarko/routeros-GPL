@@ -165,6 +165,8 @@ int mt_protiflush;
 int mt_protdflush;
 int mt_n_iflushes = 1;
 int mt_n_dflushes = 1;
+EXPORT_SYMBOL(mt_protdflush);
+EXPORT_SYMBOL(mt_n_dflushes);
 
 static int __init set_protiflush(char *s)
 {
@@ -303,6 +305,7 @@ void mt_cflush_lockdown(void)
 #endif /* CONFIG_MIPS_MT_SMTC */
 	/* FILL IN VSMP and AP/SP VERSIONS HERE */
 }
+EXPORT_SYMBOL(mt_cflush_lockdown);
 
 void mt_cflush_release(void)
 {
@@ -313,6 +316,7 @@ void mt_cflush_release(void)
 #endif /* CONFIG_MIPS_MT_SMTC */
 	/* FILL IN VSMP and AP/SP VERSIONS HERE */
 }
+EXPORT_SYMBOL(mt_cflush_release);
 
 struct class *mt_class;
 

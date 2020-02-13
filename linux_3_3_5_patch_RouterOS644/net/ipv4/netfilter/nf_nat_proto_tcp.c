@@ -18,6 +18,7 @@
 #include <net/netfilter/nf_nat_rule.h>
 #include <net/netfilter/nf_nat_protocol.h>
 #include <net/netfilter/nf_nat_core.h>
+#include <asm/unaligned.h>
 
 static u_int16_t tcp_port_rover;
 
@@ -69,8 +70,8 @@ tcp_manip_pkt(struct sk_buff *skb,
 		portptr = &hdr->dest;
 	}
 
-	oldport = *portptr;
-	*portptr = newport;
+	oldport = get_unaligned(portptr);
+	put_unaligned(newport, portptr);
 
 	if (hdrsize < sizeof(*hdr))
 		return true;

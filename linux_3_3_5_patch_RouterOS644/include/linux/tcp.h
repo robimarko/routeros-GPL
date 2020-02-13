@@ -54,7 +54,7 @@ struct tcphdr {
 	__be16	window;
 	__sum16	check;
 	__be16	urg_ptr;
-};
+} __attribute__((packed));
 
 /*
  *	The union cast uses a gcc extension to avoid aliasing problems
@@ -64,21 +64,21 @@ struct tcphdr {
 union tcp_word_hdr { 
 	struct tcphdr hdr;
 	__be32 		  words[5];
-}; 
+} __attribute__((packed));
 
 #define tcp_flag_word(tp) ( ((union tcp_word_hdr *)(tp))->words [3]) 
 
 enum { 
-	TCP_FLAG_CWR = __cpu_to_be32(0x00800000),
-	TCP_FLAG_ECE = __cpu_to_be32(0x00400000),
-	TCP_FLAG_URG = __cpu_to_be32(0x00200000),
-	TCP_FLAG_ACK = __cpu_to_be32(0x00100000),
-	TCP_FLAG_PSH = __cpu_to_be32(0x00080000),
-	TCP_FLAG_RST = __cpu_to_be32(0x00040000),
-	TCP_FLAG_SYN = __cpu_to_be32(0x00020000),
-	TCP_FLAG_FIN = __cpu_to_be32(0x00010000),
-	TCP_RESERVED_BITS = __cpu_to_be32(0x0F000000),
-	TCP_DATA_OFFSET = __cpu_to_be32(0xF0000000)
+	TCP_FLAG_CWR = __constant_cpu_to_be32(0x00800000),
+	TCP_FLAG_ECE = __constant_cpu_to_be32(0x00400000),
+	TCP_FLAG_URG = __constant_cpu_to_be32(0x00200000),
+	TCP_FLAG_ACK = __constant_cpu_to_be32(0x00100000),
+	TCP_FLAG_PSH = __constant_cpu_to_be32(0x00080000),
+	TCP_FLAG_RST = __constant_cpu_to_be32(0x00040000),
+	TCP_FLAG_SYN = __constant_cpu_to_be32(0x00020000),
+	TCP_FLAG_FIN = __constant_cpu_to_be32(0x00010000),
+	TCP_RESERVED_BITS = __constant_cpu_to_be32(0x0F000000),
+	TCP_DATA_OFFSET = __constant_cpu_to_be32(0xF0000000)
 }; 
 
 /*
@@ -231,12 +231,12 @@ static inline unsigned int tcp_optlen(const struct sk_buff *skb)
 struct tcp_sack_block_wire {
 	__be32	start_seq;
 	__be32	end_seq;
-};
+} __attribute__((packed));
 
 struct tcp_sack_block {
 	u32	start_seq;
 	u32	end_seq;
-};
+} __attribute__((packed));
 
 /*These are used to set the sack_ok field in struct tcp_options_received */
 #define TCP_SACK_SEEN     (1 << 0)   /*1 = peer is SACK capable, */

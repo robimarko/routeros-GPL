@@ -767,7 +767,7 @@ static int ip6_tnl_rcv(struct sk_buff *skb, __u16 protocol,
 
 		dscp_ecn_decapsulate(t, ipv6h, skb);
 
-		netif_rx(skb);
+		netif_receive_any(skb);
 
 		rcu_read_unlock();
 		return 0;
@@ -982,6 +982,7 @@ static int ip6_tnl_xmit2(struct sk_buff *skb,
 	ipv6h->saddr = fl6->saddr;
 	ipv6h->daddr = fl6->daddr;
 	nf_reset(skb);
+	skb_reset_mark(skb);
 	pkt_len = skb->len;
 	err = ip6_local_out(skb);
 

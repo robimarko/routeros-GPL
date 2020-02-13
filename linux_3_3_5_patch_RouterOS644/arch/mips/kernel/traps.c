@@ -93,7 +93,11 @@ void (*board_ejtag_handler_setup)(void);
 void (*board_bind_eic_interrupt)(int irq, int regset);
 void (*board_ebase_setup)(void);
 
+#ifdef CONFIG_KALLSYMS
+int raw_show_trace;
+#endif
 
+#ifdef CONFIG_RAWBACKTRACE
 static void show_raw_backtrace(unsigned long reg29)
 {
 	unsigned long *sp = (unsigned long *)(reg29 & ~3);
@@ -117,7 +121,6 @@ static void show_raw_backtrace(unsigned long reg29)
 }
 
 #ifdef CONFIG_KALLSYMS
-int raw_show_trace;
 static int __init set_raw_show_trace(char *str)
 {
 	raw_show_trace = 1;
@@ -143,6 +146,73 @@ static void show_backtrace(struct task_struct *task, const struct pt_regs *regs)
 	} while (pc);
 	printk("\n");
 }
+
+#else
+
+
+static int bt_iters(unsigned long pc, unsigned long sp) {
+	unsigned long spp = sp;
+	int i = 0;
+	while (pc) {
+		pc = find_prev_frame(pc, 0, &spp, 0);
+		++i;
+	}
+	return i;
+}
+
+static void show_backtrace(struct task_struct *task, const struct pt_regs *regs)
+{
+	unsigned long sp = regs->regs[29];
+	unsigned long ra = regs->regs[31];
+	unsigned long pc = regs->cp0_epc;
+	int depth = 50;
+	int c;
+	int best_count;
+	unsigned long bpc;
+	unsigned long bsp;
+
+	printk("Call Trace:\n");
+	while (depth-- && pc) {
+		printk("{%08lx} %pS\n", sp, (void *)pc);
+		pc = find_prev_frame(pc, ra, &sp, 0);
+		ra = 0;
+
+		if (pc) {
+			continue;
+		}
+		best_count = 0;
+		bpc = 0;
+		bsp = 0;
+		while (!kstack_end((unsigned long *)sp)) {
+			sp += sizeof(void *);
+			if (__get_user(pc, (unsigned long __user *)sp)) {
+				pc = 0;
+				break;
+			}
+			if (!__kernel_text_address(pc)) {
+				pc = 0;
+				continue;
+			}
+			c = bt_iters(pc, sp + 4);
+			if (c > 1 && c > best_count) {
+				best_count = c;
+				bpc = pc;
+				bsp = sp + 4;
+			}
+			if (c > 4) {
+				break;
+			}
+			pc = 0;
+		}
+		pc = bpc;
+		sp = bsp;
+		if (pc) {
+			printk("more trace (sp:%lx):\n", sp);
+		}
+	}
+	printk("\n");
+}
+#endif
 
 /*
  * This routine abuses get_user()/put_user() to reference pointers
@@ -380,6 +450,7 @@ void __noreturn die(const char *str, struct pt_regs *regs)
 	if (notify_die(DIE_OOPS, str, regs, 0, regs_to_trapnr(regs), SIGSEGV) == NOTIFY_STOP)
 		sig = 0;
 
+	oops_enter();
 	console_verbose();
 	raw_spin_lock_irq(&die_lock);
 #ifdef CONFIG_MIPS_MT_SMTC
@@ -1373,7 +1444,7 @@ void __init *set_except_vector(int n, void *addr)
 		unsigned long jump_mask = ~((1 << 28) - 1);
 		u32 *buf = (u32 *)(ebase + 0x200);
 		unsigned int k0 = 26;
-		if ((handler & jump_mask) == ((ebase + 0x200) & jump_mask)) {
+		if ((handler & jump_mask) == ((KSEG0ADDR(ebase) + 0x200) & jump_mask)) {
 			uasm_i_j(&buf, handler & ~jump_mask);
 			uasm_i_nop(&buf);
 		} else {
@@ -1590,6 +1661,7 @@ void __cpuinit per_cpu_trap_init(void)
 	 *  o read IntCtl.IPTI to determine the timer interrupt
 	 *  o read IntCtl.IPPCI to determine the performance counter interrupt
 	 */
+#ifdef CONFIG_CPU_MIPSR2
 	if (cpu_has_mips_r2) {
 		cp0_compare_irq_shift = CAUSEB_TI - CAUSEB_IP;
 		cp0_compare_irq = (read_c0_intctl() >> INTCTLB_IPTI) & 7;
@@ -1597,11 +1669,17 @@ void __cpuinit per_cpu_trap_init(void)
 		if (cp0_perfcount_irq == cp0_compare_irq)
 			cp0_perfcount_irq = -1;
 	} else {
+#endif
 		cp0_compare_irq = CP0_LEGACY_COMPARE_IRQ;
 		cp0_compare_irq_shift = cp0_compare_irq;
 		cp0_perfcount_irq = -1;
+#ifdef CONFIG_CPU_MIPSR2
 	}
+#endif
 
+#ifdef CONFIG_MIPS_MIKROTIK
+	cp0_compare_irq = CP0_LEGACY_COMPARE_IRQ;
+#endif
 #ifdef CONFIG_MIPS_MT_SMTC
 	}
 #endif /* CONFIG_MIPS_MT_SMTC */
@@ -1614,10 +1692,11 @@ void __cpuinit per_cpu_trap_init(void)
 	BUG_ON(current->mm);
 	enter_lazy_tlb(&init_mm, current);
 
+	if (cpu != 0)
+		cpu_cache_init();
 #ifdef CONFIG_MIPS_MT_SMTC
 	if (bootTC) {
 #endif /* CONFIG_MIPS_MT_SMTC */
-		cpu_cache_init();
 		tlb_init();
 #ifdef CONFIG_MIPS_MT_SMTC
 	} else if (!secondaryTC) {
@@ -1687,7 +1766,7 @@ void __init trap_init(void)
 		ebase = (unsigned long)
 			__alloc_bootmem(size, 1 << fls(size), 0);
 	} else {
-		ebase = CKSEG0;
+		ebase = CAC_BASE;
 		if (cpu_has_mips_r2)
 			ebase += (read_c0_ebase() & 0x3ffff000);
 	}

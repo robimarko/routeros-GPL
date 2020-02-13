@@ -39,10 +39,10 @@ static inline void clear_bit(unsigned nr, volatile unsigned long *addr)
 
 static inline void change_bit(unsigned nr, volatile unsigned long *addr)
 {
-	unsigned long old, mask = (1UL << (nr % BITS_PER_LONG));
+	unsigned long mask = (1UL << (nr % BITS_PER_LONG));
 	long guess, oldval;
 	addr += nr / BITS_PER_LONG;
-	old = *addr;
+	oldval = *addr;
 	do {
 		guess = oldval;
 		oldval = atomic64_cmpxchg((atomic64_t *)addr,

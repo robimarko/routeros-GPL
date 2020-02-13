@@ -61,6 +61,36 @@
 
 #include "internal.h"
 
+#ifdef CONFIG_HOMECACHE
+
+#include <asm/homecache.h>
+
+static int homecache_migrate_pte(struct page *page, struct vm_area_struct *vma,
+				 unsigned long address, pte_t *ptep,
+				 enum ttu_flags flags)
+{
+	if (TTU_ACTION(flags) == TTU_HOMECACHE_START) {
+		set_pte(ptep, pte_mkmigrate(*ptep));
+		flush_tlb_page(vma, address);
+		return 1;
+	}
+	if (TTU_ACTION(flags) == TTU_HOMECACHE_FINISH) {
+		homecache_update_migrating_pte(page, ptep, vma, address);
+		return 1;
+	}
+	return 0;
+}
+
+/* We have to tolerate migrating PTEs (which are technically "not
+ * present") when we're looking around to find what needs to be marked.
+ */
+#ifdef __tile__
+#undef pte_present
+#define pte_present(pte) (hv_pte_get_present(pte) || hv_pte_get_migrating(pte))
+#endif
+
+#endif
+
 static struct kmem_cache *anon_vma_cachep;
 static struct kmem_cache *anon_vma_chain_cachep;
 
@@ -1224,6 +1254,12 @@ int try_to_unmap_one(struct page *page, struct vm_area_struct *vma,
 	if (!pte)
 		goto out;
 
+#ifdef CONFIG_HOMECACHE
+	if (PageAnon(page) &&
+	    homecache_migrate_pte(page, vma, address, pte, flags))
+		goto out_unmap;
+#endif
+
 	/*
 	 * If the page is mlock()d, we cannot swap it out.
 	 * If it's recently referenced (perhaps page_referenced
@@ -1359,7 +1395,8 @@ out_mlock:
 #define CLUSTER_MASK	(~(CLUSTER_SIZE - 1))
 
 static int try_to_unmap_cluster(unsigned long cursor, unsigned int *mapcount,
-		struct vm_area_struct *vma, struct page *check_page)
+	struct vm_area_struct *vma, struct page *check_page,
+	enum ttu_flags flags)
 {
 	struct mm_struct *mm = vma->vm_mm;
 	pgd_t *pgd;
@@ -1413,6 +1450,11 @@ static int try_to_unmap_cluster(unsigned long cursor, unsigned int *mapcount,
 			continue;
 		page = vm_normal_page(vma, address, *pte);
 		BUG_ON(!page || PageAnon(page));
+
+#ifdef CONFIG_HOMECACHE
+		if (homecache_migrate_pte(page, vma, address, pte, flags))
+			continue;
+#endif
 
 		if (locked_vma) {
 			mlock_vma_page(page);   /* no-op if already mlocked */
@@ -1601,7 +1643,7 @@ static int try_to_unmap_file(struct page *page, enum ttu_flags flags)
 			while ( cursor < max_nl_cursor &&
 				cursor < vma->vm_end - vma->vm_start) {
 				if (try_to_unmap_cluster(cursor, &mapcount,
-						vma, page) == SWAP_MLOCK)
+							 vma, page, flags) == SWAP_MLOCK)
 					ret = SWAP_MLOCK;
 				cursor += CLUSTER_SIZE;
 				vma->vm_private_data = (void *) cursor;

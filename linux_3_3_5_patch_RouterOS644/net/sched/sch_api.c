@@ -204,31 +204,88 @@ EXPORT_SYMBOL(unregister_qdisc);
    (root qdisc, all its children, children of children etc.)
  */
 
+static struct Qdisc *qdisc_tree_find(struct Qdisc *root, u32 handle)
+{
+	struct rb_node *i = root->tree_root.rb_node;
+
+	while (i) {
+		struct Qdisc *x = container_of(i, struct Qdisc, tree_node);
+
+		if (handle < x->handle) {
+			i = i->rb_left;
+		}
+		else if (handle > x->handle) {
+			i = i->rb_right;
+		}
+		else {
+			return x;
+		}
+	}
+
+	return NULL;
+}
+
+static void qdisc_tree_insert(struct Qdisc *root, struct Qdisc *x)   {
+	struct rb_node **new = &(root->tree_root.rb_node);
+	struct rb_node *parent = NULL;
+
+	while (*new) {
+		struct Qdisc *f = container_of(*new, struct Qdisc, tree_node);
+
+		parent = *new;
+		if (x->handle < f->handle) {
+			new = &((*new)->rb_left);
+		}
+		else {
+			new = &((*new)->rb_right);
+		}
+	}
+
+	rb_link_node(&x->tree_node, parent, new);
+	rb_insert_color(&x->tree_node, &root->tree_root);
+}
+
+static void qdisc_tree_erase(struct Qdisc *root, struct Qdisc *x) {
+	if (!x->tree_node.rb_parent_color &&
+	    !x->tree_node.rb_left &&
+	    !x->tree_node.rb_right) {
+		return;
+	}
+	rb_erase(&x->tree_node, &root->tree_root);
+}
+
 static struct Qdisc *qdisc_match_from_root(struct Qdisc *root, u32 handle)
 {
-	struct Qdisc *q;
+//	struct Qdisc *q;
 
 	if (!(root->flags & TCQ_F_BUILTIN) &&
 	    root->handle == handle)
 		return root;
 
+	return qdisc_tree_find(root, handle);
+/*
 	list_for_each_entry(q, &root->list, list) {
 		if (q->handle == handle)
 			return q;
 	}
 	return NULL;
+*/
 }
 
 static void qdisc_list_add(struct Qdisc *q)
 {
-	if ((q->parent != TC_H_ROOT) && !(q->flags & TCQ_F_INGRESS))
+	if ((q->parent != TC_H_ROOT) && !(q->flags & TCQ_F_INGRESS)) {
 		list_add_tail(&q->list, &qdisc_dev(q)->qdisc->list);
+		qdisc_tree_insert(qdisc_dev(q)->qdisc, q);
+	}
 }
 
 void qdisc_list_del(struct Qdisc *q)
 {
-	if ((q->parent != TC_H_ROOT) && !(q->flags & TCQ_F_INGRESS))
+	if ((q->parent != TC_H_ROOT) && !(q->flags & TCQ_F_INGRESS)) {
 		list_del(&q->list);
+		qdisc_tree_erase(qdisc_dev(q)->qdisc, q);
+	}
 }
 EXPORT_SYMBOL(qdisc_list_del);
 
@@ -459,7 +516,6 @@ void __qdisc_calculate_pkt_len(struct sk_buff *skb, const struct qdisc_size_tabl
 out:
 	if (unlikely(pkt_len < 1))
 		pkt_len = 1;
-	qdisc_skb_cb(skb)->pkt_len = pkt_len;
 }
 EXPORT_SYMBOL(__qdisc_calculate_pkt_len);
 
@@ -486,7 +542,7 @@ static enum hrtimer_restart qdisc_watchdog(struct hrtimer *timer)
 
 void qdisc_watchdog_init(struct qdisc_watchdog *wd, struct Qdisc *qdisc)
 {
-	hrtimer_init(&wd->timer, CLOCK_MONOTONIC, HRTIMER_MODE_ABS);
+	hrtimer_init(&wd->timer, CLOCK_MONOTONIC, HRTIMER_MODE_ABS_PINNED);
 	wd->timer.function = qdisc_watchdog;
 	wd->qdisc = qdisc;
 }
@@ -503,7 +559,7 @@ void qdisc_watchdog_schedule(struct qdisc_watchdog *wd, psched_time_t expires)
 	qdisc_throttled(wd->qdisc);
 	time = ktime_set(0, 0);
 	time = ktime_add_ns(time, PSCHED_TICKS2NS(expires));
-	hrtimer_start(&wd->timer, time, HRTIMER_MODE_ABS);
+	hrtimer_start(&wd->timer, time, HRTIMER_MODE_ABS_PINNED);
 }
 EXPORT_SYMBOL(qdisc_watchdog_schedule);
 
@@ -1018,8 +1074,8 @@ static int tc_get_qdisc(struct sk_buff *skb, struct nlmsghdr *n, void *arg)
 	if (n->nlmsg_type == RTM_DELQDISC) {
 		if (!clid)
 			return -EINVAL;
-		if (q->handle == 0)
-			return -ENOENT;
+//		if (q->handle == 0)
+//			return -ENOENT;
 		err = qdisc_graft(dev, p, skb, n, clid, NULL, q);
 		if (err != 0)
 			return err;

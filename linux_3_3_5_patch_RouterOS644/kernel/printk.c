@@ -58,7 +58,7 @@ void asmlinkage __attribute__((weak)) early_printk(const char *fmt, ...)
 
 /* We show everything that is MORE important than this.. */
 #define MINIMUM_CONSOLE_LOGLEVEL 1 /* Minimum loglevel we let people use */
-#define DEFAULT_CONSOLE_LOGLEVEL 7 /* anything MORE serious than KERN_DEBUG */
+#define DEFAULT_CONSOLE_LOGLEVEL 1 /* anything MORE serious than KERN_DEBUG */
 
 DECLARE_WAIT_QUEUE_HEAD(log_wait);
 
@@ -68,6 +68,7 @@ int console_printk[4] = {
 	MINIMUM_CONSOLE_LOGLEVEL,	/* minimum_console_loglevel */
 	DEFAULT_CONSOLE_LOGLEVEL,	/* default_console_loglevel */
 };
+EXPORT_SYMBOL(console_printk);
 
 /*
  * Low level drivers may need that to know if they can schedule in
@@ -1213,6 +1214,7 @@ int is_console_locked(void)
 
 static DEFINE_PER_CPU(int, printk_pending);
 
+#if defined CONFIG_PRINTK
 void printk_tick(void)
 {
 	if (__this_cpu_read(printk_pending)) {
@@ -1227,6 +1229,10 @@ int printk_needs_cpu(int cpu)
 		printk_tick();
 	return __this_cpu_read(printk_pending);
 }
+#else
+void printk_tick(void) {
+}
+#endif
 
 void wake_up_klogd(void)
 {
@@ -1660,6 +1666,23 @@ bool printk_timed_ratelimit(unsigned long *caller_jiffies,
 	return false;
 }
 EXPORT_SYMBOL(printk_timed_ratelimit);
+
+void get_some_log(char *buf, int amount) {
+	int spare;
+	unsigned long flags;
+
+	if (amount > log_buf_len) amount = log_buf_len;
+	raw_spin_lock_irqsave(&logbuf_lock, flags);
+	spare = amount - (log_end & LOG_BUF_MASK);
+	if (spare > 0) {
+		memcpy(buf + spare, log_buf, log_end & LOG_BUF_MASK);
+		memcpy(buf, log_buf + (log_buf_len - spare), spare);
+	} else {
+		memcpy(buf, log_buf - spare, amount);
+	}
+	raw_spin_unlock_irqrestore(&logbuf_lock, flags);
+}
+EXPORT_SYMBOL(get_some_log);
 
 static DEFINE_SPINLOCK(dump_list_lock);
 static LIST_HEAD(dump_list);

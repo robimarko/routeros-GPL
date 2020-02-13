@@ -6221,7 +6221,7 @@ normal_timer_service:
 	if (adapter->flags & IXGBE_FLAG_NEED_LINK_UPDATE)
 		next_event_offset = HZ / 10;
 	else
-		next_event_offset = HZ * 2;
+		next_event_offset = HZ;
 
 #ifdef CONFIG_PCI_IOV
 schedule_event:

@@ -111,7 +111,7 @@ static int sclhi(struct i2c_algo_bit_data *adap)
 				break;
 			return -ETIMEDOUT;
 		}
-		cond_resched();
+		cpu_relax();
 	}
 #ifdef DEBUG
 	if (jiffies != start && i2c_debug >= 3)
@@ -352,7 +352,7 @@ static int try_address(struct i2c_adapter *i2c_adap,
 		bit_dbg(3, &i2c_adap->dev, "emitting stop condition\n");
 		i2c_stop(adap);
 		udelay(adap->udelay);
-		yield();
+		cpu_relax();
 		bit_dbg(3, &i2c_adap->dev, "emitting start condition\n");
 		i2c_start(adap);
 	}

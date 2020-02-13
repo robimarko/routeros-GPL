@@ -81,6 +81,11 @@ smp_85xx_kick_cpu(int nr)
 
 	local_irq_save(flags);
 
+/* XXX: begin hack: added to support older RB1100AHx2 bootloaders */
+#ifdef CONFIG_PPC32
+	out_be32(bptr_vaddr + BOOT_ENTRY_ADDR_LOWER, __pa(__early_start));
+#endif
+/* XXX: end hack */
 	out_be32(bptr_vaddr + BOOT_ENTRY_PIR, hw_cpu);
 #ifdef CONFIG_PPC32
 	out_be32(bptr_vaddr + BOOT_ENTRY_ADDR_LOWER, __pa(__early_start));
@@ -115,7 +120,7 @@ smp_85xx_kick_cpu(int nr)
 
 struct smp_ops_t smp_85xx_ops = {
 	.kick_cpu = smp_85xx_kick_cpu,
-#ifdef CONFIG_KEXEC
+#if defined(CONFIG_KEXEC) || 1
 	.give_timebase	= smp_generic_give_timebase,
 	.take_timebase	= smp_generic_take_timebase,
 #endif

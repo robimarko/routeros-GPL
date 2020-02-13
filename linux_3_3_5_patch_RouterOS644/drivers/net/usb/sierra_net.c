@@ -756,6 +756,12 @@ static int sierra_net_bind(struct usbnet *dev, struct usb_interface *intf)
 	if (dev->udev->speed != USB_SPEED_HIGH)
 		dev->rx_urb_size  = min_t(size_t, 4096, data->rx_urb_size);
 
+        // MT - prevent 32MB boards running out of memory
+        if ((totalram_pages << (PAGE_SHIFT - 10)) < 32000) {
+            printk(KERN_INFO "sierra_net rx_urb_size limited");
+            dev->rx_urb_size = 2 * 1024;
+        }
+
 	dev->net->hard_header_len += SIERRA_NET_HIP_EXT_HDR_LEN;
 	dev->hard_mtu = dev->net->mtu + dev->net->hard_header_len;
 
@@ -779,7 +785,7 @@ static int sierra_net_bind(struct usbnet *dev, struct usb_interface *intf)
 	dev_dbg(&dev->udev->dev, "Fw attr: %x\n", fwattr);
 
 	/* test whether firmware supports DHCP */
-	if (!(status == sizeof(fwattr) && (fwattr & SWI_GET_FW_ATTR_MASK))) {
+	if (!(status == sizeof(fwattr) && (le16_to_cpu(fwattr) & SWI_GET_FW_ATTR_MASK))) {
 		/* found incompatible firmware version */
 		dev_err(&dev->udev->dev, "Incompatible driver and firmware"
 			" versions\n");
@@ -905,6 +911,21 @@ struct sk_buff *sierra_net_tx_fixup(struct usbnet *dev, struct sk_buff *skb,
 
 	dev_dbg(&dev->udev->dev, "%s", __func__);
 	if (priv->link_up && check_ethip_packet(skb, dev) && is_ip(skb)) {
+                if (SIERRA_NET_HIP_EXT_HDR_LEN > skb_headroom(skb)) {
+                    if (likely(!skb_cloned(skb))
+                            && (skb_headroom(skb) + skb_tailroom(skb))
+                            >= SIERRA_NET_HIP_EXT_HDR_LEN) {
+                        skb->data = memmove(skb->head + SIERRA_NET_HIP_EXT_HDR_LEN,
+                                            skb->data, skb->len);
+                        skb_set_tail_pointer(skb, skb->len);
+                        goto fill;
+                    }
+                    struct sk_buff *skb2 = skb_copy_expand(skb, SIERRA_NET_HIP_EXT_HDR_LEN, 0, flags);
+                    dev_kfree_skb_any(skb);
+                    skb = skb2;
+                    if (unlikely(!skb2)) return NULL;
+                }
+fill:
 		/* enough head room as is? */
 		if (SIERRA_NET_HIP_EXT_HDR_LEN <= skb_headroom(skb)) {
 			/* Save the Eth/IP length and set up HIP hdr */
@@ -967,6 +988,12 @@ static const struct driver_info sierra_net_info_68A3 = {
 
 static const struct usb_device_id products[] = {
 	{USB_DEVICE(0x1199, 0x68A3), /* Sierra Wireless USB-to-WWAN modem */
+	.driver_info = (unsigned long) &sierra_net_info_68A3},
+
+	{USB_DEVICE(0x0f3d, 0x68AA), /* AT&T Direct IP LTE modem */
+	.driver_info = (unsigned long) &sierra_net_info_68A3},
+
+	{USB_DEVICE(0x1199, 0x68AA), /* Sierra Wireless Direct IP LTE modem */
 	.driver_info = (unsigned long) &sierra_net_info_68A3},
 
 	{}, /* last item */

@@ -89,7 +89,7 @@ static struct clocksource clocksource_rtc = {
 	.read         = rtc_read,
 };
 
-static cycle_t timebase_read(struct clocksource *);
+cycle_t timebase_read(struct clocksource *);
 static struct clocksource clocksource_timebase = {
 	.name         = "timebase",
 	.rating       = 400,
@@ -788,10 +788,11 @@ static cycle_t rtc_read(struct clocksource *cs)
 	return (cycle_t)get_rtc();
 }
 
-static cycle_t timebase_read(struct clocksource *cs)
+cycle_t timebase_read(struct clocksource *cs)
 {
 	return (cycle_t)get_tb();
 }
+EXPORT_SYMBOL(timebase_read);
 
 void update_vsyscall(struct timespec *wall_time, struct timespec *wtm,
 			struct clocksource *clock, u32 mult)

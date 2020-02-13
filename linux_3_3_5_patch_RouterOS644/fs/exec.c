@@ -288,6 +288,9 @@ static int __bprm_mm_init(struct linux_binprm *bprm)
 		goto err;
 
 	mm->stack_vm = mm->total_vm = 1;
+#ifdef CONFIG_HOMECACHE
+	arch_exec_vma(vma);
+#endif
 	up_write(&mm->mmap_sem);
 	bprm->p = vma->vm_end - sizeof(void *);
 	return 0;
@@ -753,6 +756,10 @@ int setup_arg_pages(struct linux_binprm *bprm,
 	if (ret)
 		ret = -EFAULT;
 
+#ifdef CONFIG_HOMECACHE
+	/* Repeat the call to reset vm_flags, if necessary */
+	arch_exec_vma(vma);
+#endif
 out_unlock:
 	up_write(&mm->mmap_sem);
 	return ret;
@@ -1506,6 +1513,9 @@ static int do_execve_common(const char *filename,
 		goto out_unmark;
 
 	sched_exec();
+#ifdef CONFIG_HOMECACHE
+	arch_exec_env(NULL);
+#endif
 
 	bprm->file = file;
 	bprm->filename = filename;

@@ -456,7 +456,7 @@ config I2C_MPC
 
 config I2C_MV64XXX
 	tristate "Marvell mv64xxx I2C Controller"
-	depends on (MV64X60 || PLAT_ORION) && EXPERIMENTAL
+	depends on (MV64X60 || PLAT_ORION || MIPS_MIKROTIK) && EXPERIMENTAL
 	help
 	  If you say yes to this option, support will be included for the
 	  built-in I2C interface on the Marvell 64xxx line of host bridges.
@@ -575,6 +575,13 @@ config I2C_PXA_SLAVE
 	  is necessary for systems where the PXA may be a target on the
 	  I2C bus.
 
+config I2C_QUP
+	tristate "I2C_QUP"
+	depends on ARCH_MSM
+	help
+	  If you say yes to this option, support will be included for the
+	  built-in I2C interface on the MSM family processors.
+
 config HAVE_S3C2410_I2C
 	bool
 	help
@@ -649,6 +656,16 @@ config I2C_TEGRA
 	help
 	  If you say yes to this option, support will be included for the
 	  I2C controller embedded in NVIDIA Tegra SOCs
+
+config I2C_TILE
+	tristate "Tilera I2C hypervisor interface"
+	depends on TILE
+	help
+	  This supports the Tilera hypervisor interface for
+	  communicating with I2C devices attached to the chip.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called i2c-tile.
 
 config I2C_VERSATILE
 	tristate "ARM Versatile/Realview I2C bus support"

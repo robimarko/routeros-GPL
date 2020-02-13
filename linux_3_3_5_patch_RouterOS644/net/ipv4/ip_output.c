@@ -170,7 +170,8 @@ int ip_build_and_send_pkt(struct sk_buff *skb, struct sock *sk,
 	}
 
 	skb->priority = sk->sk_priority;
-	skb->mark = sk->sk_mark;
+	skb->mark = 0;
+	skb->prmark = sk->sk_mark;
 
 	/* Send it out. */
 	return ip_local_out(skb);
@@ -189,6 +190,13 @@ static inline int ip_finish_output2(struct sk_buff *skb)
 		IP_UPD_PO_STATS(dev_net(dev), IPSTATS_MIB_OUTMCAST, skb->len);
 	} else if (rt->rt_type == RTN_BROADCAST)
 		IP_UPD_PO_STATS(dev_net(dev), IPSTATS_MIB_OUTBCAST, skb->len);
+
+	if (dst->child) {
+		struct dst_entry *child = dst_clone(dst->child);
+		skb_dst_drop(skb);
+		skb_dst_set(skb, child);
+		return dst_output(skb);
+	}
 
 	/* Be paranoid, rather than too clever. */
 	if (unlikely(skb_headroom(skb) < hh_len && dev->header_ops)) {
@@ -408,7 +416,8 @@ packet_routed:
 			     (skb_shinfo(skb)->gso_segs ?: 1) - 1);
 
 	skb->priority = sk->sk_priority;
-	skb->mark = sk->sk_mark;
+	skb->mark = 0;
+	skb->prmark = sk->sk_mark;
 
 	res = ip_local_out(skb);
 	rcu_read_unlock();
@@ -432,6 +441,8 @@ static void ip_copy_metadata(struct sk_buff *to, struct sk_buff *from)
 	skb_dst_copy(to, from);
 	to->dev = from->dev;
 	to->mark = from->mark;
+	to->prmark = from->prmark;
+	to->hsmark = from->hsmark;
 
 	/* Copy the flags to each fragment. */
 	IPCB(to)->flags = IPCB(from)->flags;
@@ -1359,7 +1370,8 @@ struct sk_buff *__ip_make_skb(struct sock *sk,
 	}
 
 	skb->priority = sk->sk_priority;
-	skb->mark = sk->sk_mark;
+	skb->mark = 0;
+	skb->prmark = sk->sk_mark;
 	/*
 	 * Steal rt from cork.dst to avoid a pair of atomic_inc/atomic_dec
 	 * on dst refcount

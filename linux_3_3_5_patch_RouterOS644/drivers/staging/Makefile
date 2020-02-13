@@ -55,3 +55,4 @@ obj-$(CONFIG_INTEL_MEI)		+= mei/
 obj-$(CONFIG_MFD_NVEC)		+= nvec/
 obj-$(CONFIG_DRM_OMAP)		+= omapdrm/
 obj-$(CONFIG_ANDROID)		+= android/
+obj-$(CONFIG_FSL_DPA)           += fsl_qbman/

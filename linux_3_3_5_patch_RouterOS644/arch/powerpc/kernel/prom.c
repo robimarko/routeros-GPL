@@ -391,6 +391,14 @@ int __init early_init_dt_scan_chosen_ppc(unsigned long node, const char *uname,
 {
 	unsigned long *lprop;
 
+#ifdef CONFIG_BLK_DEV_INITRD
+	lprop = of_get_flat_dt_prop(node, "linux,initrd", NULL);
+	if (lprop) {
+		initrd_start = (unsigned) __va(lprop[0]);
+		initrd_end = initrd_start + lprop[1];
+	}
+#endif
+
 	/* Use common scan routine to determine if this is the chosen node */
 	if (early_init_dt_scan_chosen(node, uname, depth, data) == 0)
 		return 0;
@@ -735,6 +743,11 @@ void __init early_init_devtree(void *params)
 	/* Scan memory nodes and rebuild MEMBLOCKs */
 	of_scan_flat_dt(early_init_dt_scan_root, NULL);
 	of_scan_flat_dt(early_init_dt_scan_memory_ppc, NULL);
+
+#ifdef CONFIG_BLK_DEV_INITRD
+	if (initrd_start)
+		memblock_reserve(__pa(initrd_start), initrd_end - initrd_start);
+#endif
 
 	/* Save command line for /proc/cmdline and then parse parameters */
 	strlcpy(boot_command_line, cmd_line, COMMAND_LINE_SIZE);

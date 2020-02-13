@@ -124,8 +124,10 @@ static u32 wdt_timeleft(void)
 }
 
 /* enables watchdog timers reset */
+static void noop(void *data) { }
 static void wdt_enable(void)
 {
+	on_each_cpu(noop, NULL, 1);
 	spin_lock(&wdt->lock);
 
 	writel(UNLOCK, wdt->base + WDTLOCK);

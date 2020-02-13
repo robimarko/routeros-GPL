@@ -29,11 +29,20 @@ endif
 ifneq ($(CONFIG_DEBUG_EXTRA_FLAGS),"")
 KBUILD_CFLAGS   += $(CONFIG_DEBUG_EXTRA_FLAGS)
 endif
+KBUILD_CFLAGS   += -fno-asynchronous-unwind-tables
+KBUILD_CFLAGS	+= -fno-aggressive-loop-optimizations
+KBUILD_CFLAGS	+= -fno-dwarf2-cfi-asm
 
-LIBGCC_PATH     := $(shell $(CC) $(KBUILD_CFLAGS) -print-libgcc-file-name)
+LIBGCC_PATH     := \
+  $(shell $(CC) $(KBUILD_CFLAGS) $(KCFLAGS) -print-libgcc-file-name)
 
 # Provide the path to use for "make defconfig".
-KBUILD_DEFCONFIG := $(ARCH)_defconfig
+# We default to the newer TILE-Gx architecture if only "tile" is given.
+ifeq ($(ARCH),tile)
+        KBUILD_DEFCONFIG := tilegx_defconfig
+else
+        KBUILD_DEFCONFIG := $(ARCH)_defconfig
+endif
 
 # Used as a file extension when useful, e.g. head_$(BITS).o
 # Not needed for (e.g.) "$(CC) -m32" since the compiler automatically
@@ -50,10 +59,14 @@ head-y		:= arch/tile/kernel/head_$(BITS).o
 libs-y		+= arch/tile/lib/
 libs-y		+= $(LIBGCC_PATH)
 
+drivers-y	+= arch/tile/drivers/
+drivers-y	+= arch/tile/oprofile/
+
 # See arch/tile/Kbuild for content of core part of the kernel
 core-y		+= arch/tile/
 
 core-$(CONFIG_KVM) += arch/tile/kvm/
+core-$(CONFIG_TILE_GXIO) += arch/tile/gxio/
 
 ifdef TILERA_ROOT
 INSTALL_PATH ?= $(TILERA_ROOT)/tile/boot

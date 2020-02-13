@@ -1169,6 +1169,7 @@ int udp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	int peeked;
 	int err;
 	int is_udplite = IS_UDPLITE(sk);
+	bool checksum_valid = false;
 	bool slow;
 
 	/*
@@ -1200,11 +1201,12 @@ try_again:
 	 */
 
 	if (copied < ulen || UDP_SKB_CB(skb)->partial_cov) {
-		if (udp_lib_checksum_complete(skb))
+		checksum_valid = !udp_lib_checksum_complete(skb);
+		if (!checksum_valid)
 			goto csum_copy_err;
 	}
 
-	if (skb_csum_unnecessary(skb))
+	if (checksum_valid || skb_csum_unnecessary(skb))
 		err = skb_copy_datagram_iovec(skb, sizeof(struct udphdr),
 					      msg->msg_iov, copied);
 	else {
@@ -1469,6 +1471,9 @@ int udp_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 	    udp_lib_checksum_complete(skb))
 		goto drop;
 
+
+	if (sk->sk_lockless_rcv && sk->sk_lockless_rcv(sk, skb) == 0)
+		return 0;
 
 	if (sk_rcvqueues_full(sk, skb))
 		goto drop;

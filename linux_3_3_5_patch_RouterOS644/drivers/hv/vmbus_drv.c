@@ -25,7 +25,6 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/device.h>
-#include <linux/irq.h>
 #include <linux/interrupt.h>
 #include <linux/sysctl.h>
 #include <linux/slab.h>
@@ -33,14 +32,17 @@
 #include <acpi/acpi_bus.h>
 #include <linux/completion.h>
 #include <linux/hyperv.h>
+#include <linux/kernel_stat.h>
 #include <asm/hyperv.h>
+#include <asm/mshyperv.h>
 #include "hyperv_vmbus.h"
 
+static int vmbus_disabled = 0;
+module_param(vmbus_disabled, int, 0);
 
 static struct acpi_device  *hv_acpi_dev;
 
 static struct tasklet_struct msg_dpc;
-static struct tasklet_struct event_dpc;
 static struct completion probe_event;
 static int irq;
 
@@ -146,43 +148,9 @@ static ssize_t vmbus_show_device_attr(struct device *dev,
 	get_channel_info(hv_dev, device_info);
 
 	if (!strcmp(dev_attr->attr.name, "class_id")) {
-		ret = sprintf(buf, "{%02x%02x%02x%02x-%02x%02x-%02x%02x-"
-			       "%02x%02x%02x%02x%02x%02x%02x%02x}\n",
-			       device_info->chn_type.b[3],
-			       device_info->chn_type.b[2],
-			       device_info->chn_type.b[1],
-			       device_info->chn_type.b[0],
-			       device_info->chn_type.b[5],
-			       device_info->chn_type.b[4],
-			       device_info->chn_type.b[7],
-			       device_info->chn_type.b[6],
-			       device_info->chn_type.b[8],
-			       device_info->chn_type.b[9],
-			       device_info->chn_type.b[10],
-			       device_info->chn_type.b[11],
-			       device_info->chn_type.b[12],
-			       device_info->chn_type.b[13],
-			       device_info->chn_type.b[14],
-			       device_info->chn_type.b[15]);
+		ret = sprintf(buf, "{%pUl}\n", device_info->chn_type.b);
 	} else if (!strcmp(dev_attr->attr.name, "device_id")) {
-		ret = sprintf(buf, "{%02x%02x%02x%02x-%02x%02x-%02x%02x-"
-			       "%02x%02x%02x%02x%02x%02x%02x%02x}\n",
-			       device_info->chn_instance.b[3],
-			       device_info->chn_instance.b[2],
-			       device_info->chn_instance.b[1],
-			       device_info->chn_instance.b[0],
-			       device_info->chn_instance.b[5],
-			       device_info->chn_instance.b[4],
-			       device_info->chn_instance.b[7],
-			       device_info->chn_instance.b[6],
-			       device_info->chn_instance.b[8],
-			       device_info->chn_instance.b[9],
-			       device_info->chn_instance.b[10],
-			       device_info->chn_instance.b[11],
-			       device_info->chn_instance.b[12],
-			       device_info->chn_instance.b[13],
-			       device_info->chn_instance.b[14],
-			       device_info->chn_instance.b[15]);
+		ret = sprintf(buf, "{%pUl}\n", device_info->chn_instance.b);
 	} else if (!strcmp(dev_attr->attr.name, "modalias")) {
 		print_alias_name(hv_dev, alias_name);
 		ret = sprintf(buf, "vmbus:%s\n", alias_name);
@@ -335,6 +303,8 @@ static int vmbus_match(struct device *device, struct device_driver *driver)
  */
 static int vmbus_probe(struct device *child_device)
 {
+	if (hv_vmbus_disabled()) return -ENODEV;
+
 	int ret = 0;
 	struct hv_driver *drv =
 			drv_to_hv_drv(child_device->driver);
@@ -361,14 +331,26 @@ static int vmbus_probe(struct device *child_device)
  */
 static int vmbus_remove(struct device *child_device)
 {
-	struct hv_driver *drv = drv_to_hv_drv(child_device->driver);
+	struct hv_driver *drv;
 	struct hv_device *dev = device_to_hv_device(child_device);
+	u32 relid = dev->channel->offermsg.child_relid;
 
+	if (child_device->driver) {
+		drv = drv_to_hv_drv(child_device->driver);
 	if (drv->remove)
 		drv->remove(dev);
-	else
+		else {
+			hv_process_channel_removal(dev->channel, relid);
 		pr_err("remove not set for driver %s\n",
 			dev_name(child_device));
+		}
+	} else {
+		/*
+		 * We don't have a driver for this device; deal with the
+		 * rescind message by removing the channel.
+		 */
+		hv_process_channel_removal(dev->channel, relid);
+	}
 
 	return 0;
 }
@@ -418,9 +400,6 @@ static struct bus_type  hv_bus = {
 	.dev_attrs =	vmbus_device_attrs,
 };
 
-static const char *driver_name = "hyperv";
-
-
 struct onmessage_work_context {
 	struct work_struct work;
 	struct hv_message msg;
@@ -429,6 +408,10 @@ struct onmessage_work_context {
 static void vmbus_onmessage_work(struct work_struct *work)
 {
 	struct onmessage_work_context *ctx;
+
+	/* Do not process messages if we're in DISCONNECTED state */
+	if (vmbus_connection.conn_state == DISCONNECTED)
+		return;
 
 	ctx = container_of(work, struct onmessage_work_context,
 			   work);
@@ -442,44 +425,40 @@ static void vmbus_on_msg_dpc(unsigned long data)
 	void *page_addr = hv_context.synic_message_page[cpu];
 	struct hv_message *msg = (struct hv_message *)page_addr +
 				  VMBUS_MESSAGE_SINT;
+	struct vmbus_channel_message_header *hdr;
+	struct vmbus_channel_message_table_entry *entry;
 	struct onmessage_work_context *ctx;
+	u32 message_type = msg->header.message_type;
 
-	while (1) {
-		if (msg->header.message_type == HVMSG_NONE) {
+	if (message_type == HVMSG_NONE)
 			/* no msg */
-			break;
-		} else {
+		return;
+
+	hdr = (struct vmbus_channel_message_header *)msg->u.payload;
+
+	if (hdr->msgtype >= CHANNELMSG_COUNT) {
+		WARN_ONCE(1, "unknown msgtype=%d\n", hdr->msgtype);
+		goto msg_handled;
+	}
+
+	entry = &channel_message_table[hdr->msgtype];
+	if (entry->handler_type	== VMHT_BLOCKING) {
 			ctx = kmalloc(sizeof(*ctx), GFP_ATOMIC);
 			if (ctx == NULL)
-				continue;
+			return;
+
 			INIT_WORK(&ctx->work, vmbus_onmessage_work);
 			memcpy(&ctx->msg, msg, sizeof(*msg));
-			queue_work(vmbus_connection.work_queue, &ctx->work);
-		}
 
-		msg->header.message_type = HVMSG_NONE;
+		queue_work(vmbus_connection.work_queue, &ctx->work);
+	} else
+		entry->message_handler(hdr);
 
-		/*
-		 * Make sure the write to MessageType (ie set to
-		 * HVMSG_NONE) happens before we read the
-		 * MessagePending and EOMing. Otherwise, the EOMing
-		 * will not deliver any more messages since there is
-		 * no empty slot
-		 */
-		smp_mb();
-
-		if (msg->header.message_flags.msg_pending) {
-			/*
-			 * This will cause message queue rescan to
-			 * possibly deliver another msg from the
-			 * hypervisor
-			 */
-			wrmsrl(HV_X64_MSR_EOM, 0);
-		}
-	}
+msg_handled:
+	vmbus_signal_eom(msg, message_type);
 }
 
-static irqreturn_t vmbus_isr(int irq, void *dev_id)
+static void vmbus_isr(void)
 {
 	int cpu = smp_processor_id();
 	void *page_addr;
@@ -487,34 +466,46 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id)
 	union hv_synic_event_flags *event;
 	bool handled = false;
 
+	page_addr = hv_context.synic_event_page[cpu];
+	if (page_addr == NULL)
+		return;
+
+	event = (union hv_synic_event_flags *)page_addr +
+					 VMBUS_MESSAGE_SINT;
 	/*
 	 * Check for events before checking for messages. This is the order
 	 * in which events and messages are checked in Windows guests on
 	 * Hyper-V, and the Windows team suggested we do the same.
 	 */
 
-	page_addr = hv_context.synic_event_page[cpu];
-	event = (union hv_synic_event_flags *)page_addr + VMBUS_MESSAGE_SINT;
+	if ((vmbus_proto_version == VERSION_WS2008) ||
+		(vmbus_proto_version == VERSION_WIN7)) {
 
 	/* Since we are a child, we only need to check bit 0 */
-	if (sync_test_and_clear_bit(0, (unsigned long *) &event->flags32[0])) {
+		if (sync_test_and_clear_bit(0,
+			(unsigned long *) &event->flags32[0])) {
+			handled = true;
+		}
+	} else {
+		/*
+		 * Our host is win8 or above. The signaling mechanism
+		 * has changed and we can directly look at the event page.
+		 * If bit n is set then we have an interrup on the channel
+		 * whose id is n.
+		 */
 		handled = true;
-		tasklet_schedule(&event_dpc);
 	}
+
+	if (handled)
+		tasklet_schedule(hv_context.event_dpc[cpu]);
+
 
 	page_addr = hv_context.synic_message_page[cpu];
 	msg = (struct hv_message *)page_addr + VMBUS_MESSAGE_SINT;
 
 	/* Check if there are actual msgs to be processed */
-	if (msg->header.message_type != HVMSG_NONE) {
-		handled = true;
+	if (msg->header.message_type != HVMSG_NONE)
 		tasklet_schedule(&msg_dpc);
-	}
-
-	if (handled)
-		return IRQ_HANDLED;
-	else
-		return IRQ_NONE;
 }
 
 /*
@@ -529,7 +520,6 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id)
 static int vmbus_bus_init(int irq)
 {
 	int ret;
-	unsigned int vector;
 
 	/* Hypervisor initialization...setup hypercall page..etc */
 	ret = hv_init();
@@ -539,44 +529,37 @@ static int vmbus_bus_init(int irq)
 	}
 
 	tasklet_init(&msg_dpc, vmbus_on_msg_dpc, 0);
-	tasklet_init(&event_dpc, vmbus_on_event, 0);
 
 	ret = bus_register(&hv_bus);
 	if (ret)
 		goto err_cleanup;
 
-	ret = request_irq(irq, vmbus_isr, IRQF_SAMPLE_RANDOM,
-			driver_name, hv_acpi_dev);
+	hv_setup_vmbus_irq(vmbus_isr);
 
-	if (ret != 0) {
-		pr_err("Unable to request IRQ %d\n",
-			   irq);
-		goto err_unregister;
-	}
-
-	vector = IRQ0_VECTOR + irq;
-
+	ret = hv_synic_alloc();
+	if (ret)
+		goto err_alloc;
 	/*
-	 * Notify the hypervisor of our irq and
+	 * Initialize the per-cpu interrupt state and
 	 * connect to the host.
 	 */
-	on_each_cpu(hv_synic_init, (void *)&vector, 1);
+	on_each_cpu(hv_synic_init, NULL, 1);
 	ret = vmbus_connect();
 	if (ret)
-		goto err_irq;
+		goto err_alloc;
 
 	vmbus_request_offers();
 
 	return 0;
 
-err_irq:
-	free_irq(irq, hv_acpi_dev);
+err_alloc:
+	hv_synic_free();
+	hv_remove_vmbus_irq();
 
-err_unregister:
 	bus_unregister(&hv_bus);
 
 err_cleanup:
-	hv_cleanup();
+	hv_cleanup(false);
 
 	return ret;
 }
@@ -609,8 +592,6 @@ int __vmbus_driver_register(struct hv_driver *hv_driver, struct module *owner, c
 
 	ret = driver_register(&hv_driver->driver);
 
-	vmbus_request_offers();
-
 	return ret;
 }
 EXPORT_SYMBOL_GPL(__vmbus_driver_register);
@@ -630,6 +611,11 @@ void vmbus_driver_unregister(struct hv_driver *hv_driver)
 		driver_unregister(&hv_driver->driver);
 }
 EXPORT_SYMBOL_GPL(vmbus_driver_unregister);
+
+bool hv_vmbus_disabled() {
+	return vmbus_disabled != 0;
+}
+EXPORT_SYMBOL_GPL(hv_vmbus_disabled);
 
 /*
  * vmbus_device_create - Creates and registers a new child device
@@ -663,10 +649,8 @@ int vmbus_device_register(struct hv_device *child_device_obj)
 {
 	int ret = 0;
 
-	static atomic_t device_num = ATOMIC_INIT(0);
-
-	dev_set_name(&child_device_obj->device, "vmbus_0_%d",
-		     atomic_inc_return(&device_num));
+	dev_set_name(&child_device_obj->device, "%pUl",
+		     child_device_obj->channel->offermsg.offer.if_instance.b);
 
 	child_device_obj->device.bus = &hv_bus;
 	child_device_obj->device.parent = &hv_acpi_dev->dev;
@@ -693,14 +677,14 @@ int vmbus_device_register(struct hv_device *child_device_obj)
  */
 void vmbus_device_unregister(struct hv_device *device_obj)
 {
+	pr_info("child device %s unregistered\n",
+		dev_name(&device_obj->device));
+
 	/*
 	 * Kick off the process of unregistering the device.
 	 * This will call vmbus_remove() and eventually vmbus_device_release()
 	 */
 	device_unregister(&device_obj->device);
-
-	pr_info("child device %s unregistered\n",
-		dev_name(&device_obj->device));
 }
 
 
@@ -754,8 +738,35 @@ static struct acpi_driver vmbus_acpi_driver = {
 	},
 };
 
+static void hv_kexec_handler(void)
+{
+	int cpu;
+
+	vmbus_initiate_unload(false);
+	vmbus_connection.conn_state = DISCONNECTED;
+	/* Make sure conn_state is set as hv_synic_cleanup checks for it */
+	mb();
+	for_each_online_cpu(cpu)
+		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
+	hv_cleanup(false);
+};
+
+static void hv_crash_handler(struct pt_regs *regs)
+{
+	vmbus_initiate_unload(true);
+	/*
+	 * In crash handler we can't schedule synic cleanup for all CPUs,
+	 * doing the cleanup for current CPU only. This should be sufficient
+	 * for kdump.
+	 */
+	vmbus_connection.conn_state = DISCONNECTED;
+	hv_synic_cleanup(NULL);
+	hv_cleanup(true);
+};
+
 static int __init hv_acpi_init(void)
 {
+	if (hv_vmbus_disabled()) return 0;
 	int ret, t;
 
 	init_completion(&probe_event);
@@ -763,7 +774,6 @@ static int __init hv_acpi_init(void)
 	/*
 	 * Get irq resources first.
 	 */
-
 	ret = acpi_bus_register_driver(&vmbus_acpi_driver);
 
 	if (ret)
@@ -784,6 +794,9 @@ static int __init hv_acpi_init(void)
 	if (ret)
 		goto cleanup;
 
+	hv_setup_kexec_handler(hv_kexec_handler);
+	hv_setup_crash_handler(hv_crash_handler);
+
 	return 0;
 
 cleanup:
@@ -794,11 +807,22 @@ cleanup:
 
 static void __exit vmbus_exit(void)
 {
+	int cpu;
 
-	free_irq(irq, hv_acpi_dev);
+	hv_remove_kexec_handler();
+	hv_remove_crash_handler();
+	vmbus_connection.conn_state = DISCONNECTED;
+	vmbus_disconnect();
+	hv_remove_vmbus_irq();
+	tasklet_kill(&msg_dpc);
 	vmbus_free_channels();
 	bus_unregister(&hv_bus);
-	hv_cleanup();
+	hv_cleanup(false);
+	for_each_online_cpu(cpu) {
+		tasklet_kill(hv_context.event_dpc[cpu]);
+		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
+	}
+	hv_synic_free();
 	acpi_bus_unregister_driver(&vmbus_acpi_driver);
 }
 

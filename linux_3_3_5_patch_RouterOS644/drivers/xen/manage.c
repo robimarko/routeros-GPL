@@ -10,6 +10,7 @@
 #include <linux/freezer.h>
 #include <linux/syscore_ops.h>
 #include <linux/export.h>
+#include <linux/console.h>
 
 #include <xen/xen.h>
 #include <xen/xenbus.h>
@@ -109,16 +110,17 @@ static void do_suspend(void)
 
 	shutting_down = SHUTDOWN_SUSPEND;
 
-#ifdef CONFIG_PREEMPT
-	/* If the kernel is preemptible, we need to freeze all the processes
-	   to prevent them from being in the middle of a pagetable update
-	   during suspend. */
 	err = freeze_processes();
 	if (err) {
-		printk(KERN_ERR "xen suspend: freeze failed %d\n", err);
+		printk(KERN_ERR "xen suspend: freeze processes failed %d\n", err);
 		goto out;
 	}
-#endif
+
+	err = freeze_kernel_threads();
+	if (err) {
+		printk(KERN_ERR "xen suspend: freeze kernel threads failed %d\n", err);
+		goto out_thaw;
+	}
 
 	err = dpm_suspend_start(PMSG_FREEZE);
 	if (err) {
@@ -147,6 +149,8 @@ static void do_suspend(void)
 		si.post = &xen_post_suspend;
 	}
 
+	suspend_console();
+
 	err = stop_machine(xen_suspend, &si, cpumask_of(0));
 
 	dpm_resume_noirq(si.cancelled ? PMSG_THAW : PMSG_RESTORE);
@@ -165,14 +169,14 @@ out_resume:
 
 	dpm_resume_end(si.cancelled ? PMSG_THAW : PMSG_RESTORE);
 
+	resume_console();
+
 	/* Make sure timer events get retriggered on all CPUs */
 	clock_was_set();
 
 out_thaw:
-#ifdef CONFIG_PREEMPT
 	thaw_processes();
 out:
-#endif
 	shutting_down = SHUTDOWN_INVALID;
 }
 #endif	/* CONFIG_HIBERNATE_CALLBACKS */

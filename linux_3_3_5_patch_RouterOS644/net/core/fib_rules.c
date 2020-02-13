@@ -647,6 +647,8 @@ skip:
 	return skb->len;
 }
 
+struct jump_label_key policy_routing;
+EXPORT_SYMBOL_GPL(policy_routing);
 static void notify_rule_change(int event, struct fib_rule *rule,
 			       struct fib_rules_ops *ops, struct nlmsghdr *nlh,
 			       u32 pid)
@@ -655,6 +657,12 @@ static void notify_rule_change(int event, struct fib_rule *rule,
 	struct sk_buff *skb;
 	int err = -ENOBUFS;
 
+	if (event == RTM_NEWRULE) {
+		jump_label_inc(&policy_routing);
+	}
+	else {
+		jump_label_dec(&policy_routing);
+	}
 	net = ops->fro_net;
 	skb = nlmsg_new(fib_rule_nlmsg_size(ops, rule), GFP_KERNEL);
 	if (skb == NULL)
@@ -744,6 +752,7 @@ static struct pernet_operations fib_rules_net_ops = {
 static int __init fib_rules_init(void)
 {
 	int err;
+	jump_label_inc(&policy_routing);
 	rtnl_register(PF_UNSPEC, RTM_NEWRULE, fib_nl_newrule, NULL, NULL);
 	rtnl_register(PF_UNSPEC, RTM_DELRULE, fib_nl_delrule, NULL, NULL);
 	rtnl_register(PF_UNSPEC, RTM_GETRULE, NULL, fib_nl_dumprule, NULL);

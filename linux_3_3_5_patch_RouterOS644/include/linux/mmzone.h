@@ -19,6 +19,10 @@
 #include <linux/atomic.h>
 #include <asm/page.h>
 
+#ifdef CONFIG_HOMECACHE
+#include <asm/homecache.h>
+#endif
+
 /* Free memory management - zoned buddy allocator.  */
 #ifndef CONFIG_FORCE_MAX_ZONEORDER
 #define MAX_ORDER 11
@@ -338,6 +342,16 @@ struct zone {
 	unsigned long		min_slab_pages;
 #endif
 	struct per_cpu_pageset __percpu *pageset;
+#ifdef CONFIG_HOMECACHE
+	/* Lists of free homecacheable pages */
+	struct list_head	homecache_list[NR_ZONE_HOMECACHE_LISTS];
+	/* Number of homecacheable pages in this zone */
+	unsigned long		homecache_coherent_count;
+	unsigned long		homecache_incoherent_count;
+	/* Last list we looked in for free pages of arbitrary home */
+	int 			lru_homecache_list;
+#endif
+
 	/*
 	 * free areas of different sizes
 	 */

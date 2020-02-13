@@ -1743,6 +1743,45 @@ vmxnet3_netpoll(struct net_device *netdev)
 }
 #endif	/* CONFIG_NET_POLL_CONTROLLER */
 
+static void balance_irqs(struct vmxnet3_adapter *adapter)
+{
+	struct vmxnet3_intr *intr = &adapter->intr;
+	cpumask_t *mask;
+	int vector;
+	int i;
+
+	if (adapter->share_intr == VMXNET3_INTR_TXSHARE
+		    || adapter->num_tx_queues == 1)
+		goto set_rx;
+
+	for (i = 0; i < adapter->num_tx_queues; i++) {
+		vector = adapter->tx_queue[i].comp_ring.intr_idx;
+		mask = &intr->affinity_masks[vector];
+
+		cpumask_clear(mask);
+		cpumask_set_cpu(i % num_online_cpus(), mask);
+
+		irq_set_affinity_hint(intr->msix_entries[vector].vector, mask);
+		irq_set_affinity(intr->msix_entries[vector].vector, mask);
+	}
+
+set_rx:
+	if (adapter->share_intr == VMXNET3_INTR_BUDDYSHARE
+		    || adapter->num_rx_queues == 1)
+		return;
+
+	for (i = 0; i < adapter->num_rx_queues; i++) {
+		vector = adapter->rx_queue[i].comp_ring.intr_idx;
+		mask = &intr->affinity_masks[vector];
+
+		cpumask_clear(mask);
+		cpumask_set_cpu(i % num_online_cpus(), mask);
+
+		irq_set_affinity_hint(intr->msix_entries[vector].vector, mask);
+		irq_set_affinity(intr->msix_entries[vector].vector, mask);
+	}
+}
+
 static int
 vmxnet3_request_irqs(struct vmxnet3_adapter *adapter)
 {
@@ -1755,7 +1794,7 @@ vmxnet3_request_irqs(struct vmxnet3_adapter *adapter)
 		for (i = 0; i < adapter->num_tx_queues; i++) {
 			if (adapter->share_intr != VMXNET3_INTR_BUDDYSHARE) {
 				sprintf(adapter->tx_queue[i].name, "%s-tx-%d",
-					adapter->netdev->name, vector);
+					adapter->netdev->name, i);
 				err = request_irq(
 					      intr->msix_entries[vector].vector,
 					      vmxnet3_msix_tx, 0,
@@ -1763,7 +1802,7 @@ vmxnet3_request_irqs(struct vmxnet3_adapter *adapter)
 					      &adapter->tx_queue[i]);
 			} else {
 				sprintf(adapter->tx_queue[i].name, "%s-rxtx-%d",
-					adapter->netdev->name, vector);
+					adapter->netdev->name, i);
 			}
 			if (err) {
 				dev_err(&adapter->netdev->dev,
@@ -1792,10 +1831,10 @@ vmxnet3_request_irqs(struct vmxnet3_adapter *adapter)
 		for (i = 0; i < adapter->num_rx_queues; i++) {
 			if (adapter->share_intr != VMXNET3_INTR_BUDDYSHARE)
 				sprintf(adapter->rx_queue[i].name, "%s-rx-%d",
-					adapter->netdev->name, vector);
+					adapter->netdev->name, i);
 			else
 				sprintf(adapter->rx_queue[i].name, "%s-rxtx-%d",
-					adapter->netdev->name, vector);
+					adapter->netdev->name, i);
 			err = request_irq(intr->msix_entries[vector].vector,
 					  vmxnet3_msix_rx, 0,
 					  adapter->rx_queue[i].name,
@@ -1854,6 +1893,7 @@ vmxnet3_request_irqs(struct vmxnet3_adapter *adapter)
 			adapter->rx_queue[0].comp_ring.intr_idx = 0;
 		}
 
+		balance_irqs(adapter);
 		printk(KERN_INFO "%s: intr type %u, mode %u, %u vectors "
 		       "allocated\n", adapter->netdev->name, intr->type,
 		       intr->mask_mode, intr->num_intrs);
@@ -1877,6 +1917,8 @@ vmxnet3_free_irqs(struct vmxnet3_adapter *adapter)
 
 		if (adapter->share_intr != VMXNET3_INTR_BUDDYSHARE) {
 			for (i = 0; i < adapter->num_tx_queues; i++) {
+				irq_set_affinity_hint(intr->msix_entries[vector].vector,
+						      NULL);
 				free_irq(intr->msix_entries[vector++].vector,
 					 &(adapter->tx_queue[i]));
 				if (adapter->share_intr == VMXNET3_INTR_TXSHARE)
@@ -1885,6 +1927,8 @@ vmxnet3_free_irqs(struct vmxnet3_adapter *adapter)
 		}
 
 		for (i = 0; i < adapter->num_rx_queues; i++) {
+			irq_set_affinity_hint(intr->msix_entries[vector].vector,
+					      NULL);
 			free_irq(intr->msix_entries[vector++].vector,
 				 &(adapter->rx_queue[i]));
 		}
@@ -2651,8 +2695,8 @@ vmxnet3_declare_features(struct vmxnet3_adapter *adapter, bool dma64)
 
 	netdev->hw_features = NETIF_F_SG | NETIF_F_RXCSUM |
 		NETIF_F_HW_CSUM | NETIF_F_HW_VLAN_TX |
-		NETIF_F_HW_VLAN_RX | NETIF_F_TSO | NETIF_F_TSO6 |
-		NETIF_F_LRO;
+	    NETIF_F_HW_VLAN_RX;// | NETIF_F_TSO | NETIF_F_TSO6 |
+//		NETIF_F_LRO;
 	if (dma64)
 		netdev->hw_features |= NETIF_F_HIGHDMA;
 	netdev->vlan_features = netdev->hw_features &

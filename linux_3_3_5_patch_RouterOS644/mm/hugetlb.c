@@ -25,6 +25,9 @@
 #include <asm/page.h>
 #include <asm/pgtable.h>
 #include <linux/io.h>
+#ifdef CONFIG_HOMECACHE
+#include <asm/homecache.h>
+#endif
 
 #include <linux/hugetlb.h>
 #include <linux/node.h>
@@ -540,6 +543,10 @@ static void free_huge_page(struct page *page)
 	page->mapping = NULL;
 	BUG_ON(page_count(page));
 	BUG_ON(page_mapcount(page));
+#ifdef CONFIG_HOMECACHE
+	/* Just do some assertion checking of page properties. */
+	(void)homecache_check_free_page(page, huge_page_order(h));
+#endif
 	INIT_LIST_HEAD(&page->lru);
 
 	spin_lock(&hugetlb_lock);
@@ -1052,6 +1059,9 @@ static struct page *alloc_huge_page(struct vm_area_struct *vma,
 	}
 
 	set_page_private(page, (unsigned long) mapping);
+#ifdef CONFIG_HOMECACHE
+	homecache_new_kernel_page(page, huge_page_order(h));
+#endif
 
 	vma_commit_reservation(h, vma, addr);
 
@@ -2368,6 +2378,34 @@ retry_avoidcopy:
 	 * and just make the page writable */
 	avoidcopy = (page_mapcount(old_page) == 1);
 	if (avoidcopy) {
+#ifdef CONFIG_HOMECACHE
+		/*
+		 * This process is effectively taking ownership
+		 * of the anonymous page.  As such, we should
+		 * make sure its home cache is on the local cpu.
+		 * We have to release the page table lock for this.
+		 * Note that we will end up retaking the fault if
+		 * we re-home the page, since we change the PTE,
+		 * but it seems like the cleanest thing to do here.
+		 */
+		page_cache_get(old_page);
+		spin_unlock(&mm->page_table_lock);
+		homecache_home_page_here(old_page, huge_page_order(h),
+					 vma->vm_page_prot);
+		spin_lock(&mm->page_table_lock);
+		page_cache_release(old_page);
+		ptep = huge_pte_offset(mm, address & huge_page_mask(h));
+
+		/* Normally we would expect home_page_here(), which
+		 * calls try_to_unmap(), to take care of this.  But
+		 * these are huge pages and try_to_unmap() doesn't work.
+		 * So we have to touch this PTE by hand, but luckily
+		 * we know that it's the only one, since mapcount == 1.
+		 */
+		homecache_update_migrating_pte(old_page, ptep, vma, address);
+		if (!pte_same(*ptep, pte))
+			return VM_FAULT_MINOR;
+#endif
 		if (PageAnon(old_page))
 			page_move_anon_rmap(old_page, vma, address);
 		set_huge_ptep_writable(vma, address, ptep);
@@ -2548,6 +2586,12 @@ retry:
 		clear_huge_page(page, address, pages_per_huge_page(h));
 		__SetPageUptodate(page);
 
+#ifdef CONFIG_HOMECACHE
+		homecache_new_user_page(page, huge_page_order(h),
+					vma->vm_page_prot,
+					!!(flags & FAULT_FLAG_WRITE));
+#endif
+
 		if (vma->vm_flags & VM_MAYSHARE) {
 			int err;
 			struct inode *inode = mapping->host;
@@ -2595,6 +2639,11 @@ retry:
 			ret = VM_FAULT_OOM;
 			goto backout_unlocked;
 		}
+
+#ifdef CONFIG_HOMECACHE
+	homecache_update_page(page, huge_page_order(h), vma,
+			      !!(flags & FAULT_FLAG_WRITE));
+#endif
 
 	spin_lock(&mm->page_table_lock);
 	size = i_size_read(mapping->host) >> huge_page_shift(h);

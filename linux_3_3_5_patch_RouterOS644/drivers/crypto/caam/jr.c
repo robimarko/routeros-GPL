@@ -59,6 +59,7 @@ static void caam_jr_dequeue(unsigned long devarg)
 	u32 *userdesc, userstatus;
 	void *userarg;
 	unsigned long flags;
+        unsigned int limit = JOBR_DEPTH * 10;
 
 	spin_lock_irqsave(&jrp->outlock, flags);
 
@@ -66,7 +67,7 @@ static void caam_jr_dequeue(unsigned long devarg)
 	sw_idx = tail = jrp->tail;
 
 	while (CIRC_CNT(head, tail, JOBR_DEPTH) >= 1 &&
-	       rd_reg32(&jrp->rregs->outring_used)) {
+	       rd_reg32(&jrp->rregs->outring_used) && --limit) {
 
 		hw_idx = jrp->out_ring_read_index;
 		for (i = 0; CIRC_CNT(head, tail + i, JOBR_DEPTH) >= 1; i++) {
@@ -347,14 +348,19 @@ static int caam_jr_init(struct device *dev)
 	if (error) {
 		dev_err(dev, "can't connect JobR %d interrupt (%d)\n",
 			jrp->ridx, jrp->irq);
+		free_irq(jrp->irq, dev);
 		irq_dispose_mapping(jrp->irq);
 		jrp->irq = 0;
 		return -EINVAL;
 	}
 
 	error = caam_reset_hw_jr(dev);
-	if (error)
+	if (error) {
+		free_irq(jrp->irq, dev);
+		irq_dispose_mapping(jrp->irq);
+		jrp->irq = 0;
 		return error;
+        }
 
 	jrp->inpring = kzalloc(sizeof(dma_addr_t) * JOBR_DEPTH,
 			       GFP_KERNEL | GFP_DMA);

@@ -63,7 +63,7 @@ static irqreturn_t l2c_error_handler(int irq, void *dev)
 	if (sr & (L2C_SR_CPE | L2C_SR_TPE)){
 		mtdcr(dcrbase_l2c + DCRN_L2C0_ADDR, 0);
 		mtdcr(dcrbase_l2c + DCRN_L2C0_CMD, L2C_CMD_CCP | L2C_CMD_CTE);
-	} else {
+	} else if (sr & L2C_SR_LRU) {
 		printk(KERN_EMERG "L2C: LRU error\n");
 	}
 

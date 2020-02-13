@@ -17,6 +17,12 @@
 struct nf_conn_counter {
 	atomic64_t packets;
 	atomic64_t bytes;
+	atomic64_t fp_packets;
+	atomic64_t fp_bytes;
+
+	atomic_t bytes_prev_second;
+	atomic_t bytes_this_second;
+	unsigned long second_end_jiffies;
 };
 
 static inline

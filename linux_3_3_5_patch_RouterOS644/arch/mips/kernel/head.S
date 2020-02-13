@@ -141,18 +141,44 @@ FEXPORT(__kernel_entry)
 	j	kernel_entry
 #endif
 
-	__REF
+	__HEAD
 
 NESTED(kernel_entry, 16, sp)			# kernel entry point
 
 	kernel_entry_setup			# cpu specific setup
 
 	setup_c0_status_pri
+#ifdef CONFIG_RALINK_MT7621
+       /* Set L2 CCA Override to WT on lowest 256MB */
+       .set push
+       .set noreorder
+
+       jal 1f
+       li t0, 5
+1:
+       ins ra, t0, 29, 3
+       addiu   ra, 2f-1b
+       jr  ra
+       nop
+
+   /* Running in KSEG 1*/
+2:
+       .set pop
+       lui     v0,0xbfbf
+       ori     v0,v0,0x80c0
+
+       lui     v1,0xF000
+       ori     v1,v1,0x0011
+       sw      v1, 8(v0)
+
+       /* Base */
+       sw      zero,0(v0)
+#endif
 
 	/* We might not get launched at the address the kernel is linked to,
 	   so we jump there.  */
 	PTR_LA	t0, 0f
-	jr	t0
+	jr.hb	t0
 0:
 
 #ifdef CONFIG_MIPS_MT_SMTC

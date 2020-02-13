@@ -604,7 +604,7 @@ int main(int ac, char **av)
 				return 1;
 			}
 		}
-		valid_stdin = isatty(0) && isatty(1) && isatty(2);
+//		valid_stdin = isatty(0) && isatty(1) && isatty(2);
 	}
 
 	switch (input_mode) {

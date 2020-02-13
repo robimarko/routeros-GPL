@@ -30,6 +30,7 @@
 #include <linux/of_spi.h>
 #include <linux/pm_runtime.h>
 #include <linux/export.h>
+#include <linux/sched.h>
 
 static void spidev_release(struct device *dev)
 {
@@ -889,7 +890,7 @@ EXPORT_SYMBOL_GPL(spi_async_locked);
  * inline functions.
  */
 
-static void spi_complete(void *arg)
+void spi_complete(void *arg)
 {
 	complete(arg);
 }
@@ -988,6 +989,15 @@ int spi_bus_lock(struct spi_master *master)
 {
 	unsigned long flags;
 
+#if defined(CONFIG_MIPS_MIKROTIK) && defined(CONFIG_CPU_BIG_ENDIAN)
+	/* fix for RouterBOARD RB400 - micro-sd not to block NAND access */
+	if (master->unlocked_at_jiffies - master->locked_at_jiffies > 1 &&
+	    master->unlocked_at_jiffies == jiffies) {
+		schedule();
+	}
+	master->locked_at_jiffies = jiffies;
+#endif // MIPS_MIKROTIK
+
 	mutex_lock(&master->bus_lock_mutex);
 
 	spin_lock_irqsave(&master->bus_lock_spinlock, flags);
@@ -1015,6 +1025,9 @@ EXPORT_SYMBOL_GPL(spi_bus_lock);
  */
 int spi_bus_unlock(struct spi_master *master)
 {
+#if defined(CONFIG_MIPS_MIKROTIK) && defined(CONFIG_CPU_BIG_ENDIAN)
+	master->unlocked_at_jiffies = jiffies;
+#endif // MIPS_MIKROTIK
 	master->bus_lock_flag = 0;
 
 	mutex_unlock(&master->bus_lock_mutex);

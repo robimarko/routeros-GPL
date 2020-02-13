@@ -224,6 +224,18 @@ config HW_RANDOM_PICOXCELL
 
 	  If unsure, say Y.
 
+config HW_RANDOM_TILE
+	tristate "Tilera Gx Random Number Generator support"
+	depends on HW_RANDOM && TILE_GXIO
+	---help---
+	  This driver provides kernel-side support for the Random Number
+	  Generator hardware found on the TILE-Gx processor family.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called tile-rng.
+
+	  If unsure, say Y.
+
 config HW_RANDOM_PPC4XX
 	tristate "PowerPC 4xx generic true random number generator support"
 	depends on HW_RANDOM && PPC && 4xx

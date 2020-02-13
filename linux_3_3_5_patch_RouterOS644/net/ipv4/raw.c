@@ -348,7 +348,8 @@ static int raw_send_hdrinc(struct sock *sk, struct flowi4 *fl4,
 	skb_reserve(skb, hlen);
 
 	skb->priority = sk->sk_priority;
-	skb->mark = sk->sk_mark;
+	skb->mark = 0;
+	skb->prmark = sk->sk_mark;
 	skb_dst_set(skb, &rt->dst);
 	*rtp = NULL;
 

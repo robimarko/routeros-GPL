@@ -33,6 +33,10 @@
 #include <mach/msm_gpiomux.h>
 #include <mach/msm_iomap.h>
 
+#ifdef CONFIG_ARCH_RB
+#include <mach/system.h>
+#endif
+
 /* Bits of interest in the GPIO_IN_OUT register.
  */
 enum {
@@ -64,11 +68,14 @@ enum {
  * If INTR_ENABLE is set and INTR_RAW_STATUS_EN is NOT set, an interrupt
  * can be triggered but the status register will not reflect it.
  */
+
 enum {
 	INTR_ENABLE        = 0,
 	INTR_POL_CTL       = 1,
 	INTR_DECT_CTL      = 2,
-	INTR_RAW_STATUS_EN = 3,
+	INTR_RAW_STATUS_EN_AK	= 3, // Acronite
+	INTR_RAW_STATUS_EN_DK	= 4, // Dakota
+	INTR_TARGET_PROC	= 5,
 };
 
 /* Codes of interest in GPIO_INTR_CFG_SU.
@@ -78,12 +85,24 @@ enum {
 	TARGET_PROC_NONE     = 7,
 };
 
+static unsigned tlmm_gic_nr;
 
 #define GPIO_INTR_CFG_SU(gpio)    (MSM_TLMM_BASE + 0x0400 + (0x04 * (gpio)))
-#define GPIO_CONFIG(gpio)         (MSM_TLMM_BASE + 0x1000 + (0x10 * (gpio)))
-#define GPIO_IN_OUT(gpio)         (MSM_TLMM_BASE + 0x1004 + (0x10 * (gpio)))
-#define GPIO_INTR_CFG(gpio)       (MSM_TLMM_BASE + 0x1008 + (0x10 * (gpio)))
-#define GPIO_INTR_STATUS(gpio)    (MSM_TLMM_BASE + 0x100c + (0x10 * (gpio)))
+#define GPIO_CONFIG(gpio)         ((rb_mach == RB_MACH_IPQ806X) \
+				? (MSM_TLMM_BASE + 0x1000 + (0x10 * (gpio))) \
+				:  (MSM_TLMM_BASE + 0x0 + ((gpio) << 12)))
+#define GPIO_IN_OUT(gpio)         ((rb_mach == RB_MACH_IPQ806X) \
+                                ? (MSM_TLMM_BASE + 0x1004 + (0x10 * (gpio))) \
+                                : (MSM_TLMM_BASE + 0x4 + ((gpio) << 12)))
+#define GPIO_INTR_CFG(gpio)       ((rb_mach == RB_MACH_IPQ806X) \
+                                ? (MSM_TLMM_BASE + 0x1008 + (0x10 * (gpio))) \
+                                : (MSM_TLMM_BASE + 0x8 + ((gpio) << 12)))
+#define GPIO_INTR_STATUS(gpio)    ((rb_mach == RB_MACH_IPQ806X) \
+                                ? (MSM_TLMM_BASE + 0x100c + (0x10 * (gpio))) \
+                                : (MSM_TLMM_BASE + 0xc + ((gpio) << 12)))
+
+#define INTR_RAW_STATUS_EN	((rb_mach == RB_MACH_IPQ806X) \
+				? INTR_RAW_STATUS_EN_AK : INTR_RAW_STATUS_EN_DK)
 
 /**
  * struct msm_gpio_dev: the MSM8660 SoC GPIO device structure
@@ -248,8 +267,9 @@ static void msm_gpio_irq_mask(struct irq_data *d)
 	unsigned long irq_flags;
 
 	spin_lock_irqsave(&tlmm_lock, irq_flags);
+	if (rb_mach == RB_MACH_IPQ806X)
 	writel(TARGET_PROC_NONE, GPIO_INTR_CFG_SU(gpio));
-	clear_gpio_bits(INTR_RAW_STATUS_EN | INTR_ENABLE, GPIO_INTR_CFG(gpio));
+	clear_gpio_bits(BIT(INTR_RAW_STATUS_EN) | BIT(INTR_ENABLE), GPIO_INTR_CFG(gpio));
 	__clear_bit(gpio, msm_gpio.enabled_irqs);
 	spin_unlock_irqrestore(&tlmm_lock, irq_flags);
 }
@@ -261,7 +281,8 @@ static void msm_gpio_irq_unmask(struct irq_data *d)
 
 	spin_lock_irqsave(&tlmm_lock, irq_flags);
 	__set_bit(gpio, msm_gpio.enabled_irqs);
-	set_gpio_bits(INTR_RAW_STATUS_EN | INTR_ENABLE, GPIO_INTR_CFG(gpio));
+	set_gpio_bits(BIT(INTR_RAW_STATUS_EN) | BIT(INTR_ENABLE), GPIO_INTR_CFG(gpio));
+	if (rb_mach == RB_MACH_IPQ806X)
 	writel(TARGET_PROC_SCORPION, GPIO_INTR_CFG_SU(gpio));
 	spin_unlock_irqrestore(&tlmm_lock, irq_flags);
 }
@@ -334,12 +355,12 @@ static int msm_gpio_irq_set_wake(struct irq_data *d, unsigned int on)
 
 	if (on) {
 		if (bitmap_empty(msm_gpio.wake_irqs, NR_GPIO_IRQS))
-			irq_set_irq_wake(TLMM_SCSS_SUMMARY_IRQ, 1);
+			irq_set_irq_wake(tlmm_gic_nr, 1);
 		set_bit(gpio, msm_gpio.wake_irqs);
 	} else {
 		clear_bit(gpio, msm_gpio.wake_irqs);
 		if (bitmap_empty(msm_gpio.wake_irqs, NR_GPIO_IRQS))
-			irq_set_irq_wake(TLMM_SCSS_SUMMARY_IRQ, 0);
+			irq_set_irq_wake(tlmm_gic_nr, 0);
 	}
 
 	return 0;
@@ -354,27 +375,109 @@ static struct irq_chip msm_gpio_irq_chip = {
 	.irq_set_wake	= msm_gpio_irq_set_wake,
 };
 
+static void ipq40xx_gpio_irq_ack(struct irq_data *d)
+{
+	int gpio = msm_irq_to_gpio(&msm_gpio.gpio_chip, d->irq);
+
+	if (readl(GPIO_INTR_STATUS(gpio)) & BIT(INTR_STATUS))
+		writel(0, GPIO_INTR_STATUS(gpio));
+	else 
+		writel(BIT(INTR_STATUS), GPIO_INTR_STATUS(gpio));
+}
+
+static int ipq40xx_gpio_irq_set_type(struct irq_data *d, unsigned int flow_type)
+{
+	int gpio = msm_irq_to_gpio(&msm_gpio.gpio_chip, d->irq);
+	unsigned long irq_flags;
+	uint32_t bits;
+
+	spin_lock_irqsave(&tlmm_lock, irq_flags);
+
+	bits = readl(GPIO_INTR_CFG(gpio));
+
+	bits &= ~((3 << INTR_DECT_CTL)
+		  | BIT(INTR_POL_CTL));
+
+	if (flow_type & IRQ_TYPE_EDGE_BOTH) {
+		__irq_set_handler_locked(d->irq, handle_edge_irq);
+
+		if (flow_type & IRQ_TYPE_EDGE_RISING)
+			bits |= (1 << INTR_DECT_CTL) | BIT(INTR_POL_CTL);
+
+		if (flow_type & IRQ_TYPE_EDGE_FALLING)
+			bits |= (2 << INTR_DECT_CTL) | BIT(INTR_POL_CTL);
+	}
+
+	if (flow_type & IRQ_TYPE_LEVEL_MASK) {
+		__irq_set_handler_locked(d->irq, handle_level_irq);
+
+		if (flow_type & IRQ_TYPE_LEVEL_HIGH)
+			bits |= BIT(INTR_POL_CTL);
+		else
+			bits &= ~BIT(INTR_POL_CTL);
+	}
+
+	writel(bits, GPIO_INTR_CFG(gpio));
+
+	spin_unlock_irqrestore(&tlmm_lock, irq_flags);
+
+	return 0;
+}
+
+static struct irq_chip ipq40xx_gpio_irq_chip = {
+	.name		= "msmgpio",
+	.irq_mask	= msm_gpio_irq_mask,
+	.irq_unmask	= msm_gpio_irq_unmask,
+	.irq_ack	= ipq40xx_gpio_irq_ack,
+	.irq_set_type	= ipq40xx_gpio_irq_set_type,
+	.irq_set_wake	= msm_gpio_irq_set_wake,
+};
+
+
 static int __devinit msm_gpio_probe(struct platform_device *dev)
 {
 	int i, irq, ret;
+	struct irq_chip *gpio_irq_chip;
+
+	if (rb_mach == RB_MACH_IPQ40XX && !dev->dev.of_node)
+		return 0;
 
 	bitmap_zero(msm_gpio.enabled_irqs, NR_GPIO_IRQS);
 	bitmap_zero(msm_gpio.wake_irqs, NR_GPIO_IRQS);
 	bitmap_zero(msm_gpio.dual_edge_irqs, NR_GPIO_IRQS);
 	msm_gpio.gpio_chip.label = dev->name;
+	if (dev->dev.of_node)
+		msm_gpio.gpio_chip.of_node = dev->dev.of_node;
 	ret = gpiochip_add(&msm_gpio.gpio_chip);
 	if (ret < 0)
 		return ret;
 
+	if (rb_mach == RB_MACH_IPQ806X) {
+		tlmm_gic_nr = TLMM_SCSS_SUMMARY_IRQ;
+		gpio_irq_chip = &msm_gpio_irq_chip;
+	} else {
+		tlmm_gic_nr = GIC_SPI_START + 208;
+		gpio_irq_chip = &ipq40xx_gpio_irq_chip;
+		irq = irq_alloc_descs(-1, 0, msm_gpio.gpio_chip.ngpio, -1);
+		if (irq < 0) {
+			pr_err("Failed to allocate irq descriptors\n");
+			return -ENODEV;
+		}
+		for (i = 0; i < msm_gpio.gpio_chip.ngpio; i++) {
+			// route GPIO IRQs to APPS processor
+			writel(readl(GPIO_INTR_CFG(i)) & ~(0x6 << INTR_TARGET_PROC),
+								GPIO_INTR_CFG(i));
+		}
+	}
+
 	for (i = 0; i < msm_gpio.gpio_chip.ngpio; ++i) {
 		irq = msm_gpio_to_irq(&msm_gpio.gpio_chip, i);
-		irq_set_chip_and_handler(irq, &msm_gpio_irq_chip,
+		irq_set_chip_and_handler(irq, gpio_irq_chip,
 					 handle_level_irq);
 		set_irq_flags(irq, IRQF_VALID);
 	}
 
-	irq_set_chained_handler(TLMM_SCSS_SUMMARY_IRQ,
-				msm_summary_irq_handler);
+	irq_set_chained_handler(tlmm_gic_nr, msm_summary_irq_handler);
 	return 0;
 }
 
@@ -384,11 +487,15 @@ static int __devexit msm_gpio_remove(struct platform_device *dev)
 
 	if (ret < 0)
 		return ret;
-
-	irq_set_handler(TLMM_SCSS_SUMMARY_IRQ, NULL);
+	irq_set_handler(tlmm_gic_nr, NULL);
 
 	return 0;
 }
+
+static const struct of_device_id msm_gpio_of_match[] = {
+	{ .compatible = "msmgpio", },
+	{ },
+};
 
 static struct platform_driver msm_gpio_driver = {
 	.probe = msm_gpio_probe,
@@ -396,6 +503,7 @@ static struct platform_driver msm_gpio_driver = {
 	.driver = {
 		.name = "msmgpio",
 		.owner = THIS_MODULE,
+		.of_match_table = msm_gpio_of_match,
 	},
 };
 
@@ -407,6 +515,11 @@ static struct platform_device msm_device_gpio = {
 static int __init msm_gpio_init(void)
 {
 	int rc;
+
+#ifdef CONFIG_ARCH_RB
+	if (rb_mach != RB_MACH_IPQ806X && rb_mach != RB_MACH_IPQ40XX)
+		return -EINVAL;
+#endif
 
 	rc = platform_driver_register(&msm_gpio_driver);
 	if (!rc) {

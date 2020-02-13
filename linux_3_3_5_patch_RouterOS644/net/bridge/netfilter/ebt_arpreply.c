@@ -51,8 +51,8 @@ ebt_arpreply_tg(struct sk_buff *skb, const struct xt_action_param *par)
 	if (diptr == NULL)
 		return EBT_DROP;
 
-	arp_send(ARPOP_REPLY, ETH_P_ARP, *siptr, (struct net_device *)par->in,
-		 *diptr, shp, info->mac, shp);
+	arp_send(ARPOP_REPLY, ETH_P_ARP, get_unaligned(siptr), (struct net_device *)par->in,
+		 get_unaligned(diptr), shp, info->mac, shp);
 
 	return info->target;
 }

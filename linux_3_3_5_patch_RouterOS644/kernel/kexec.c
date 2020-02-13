@@ -43,6 +43,9 @@
 /* Per cpu memory for storing cpu states in case of system crash. */
 note_buf_t __percpu *crash_notes;
 
+/* Flag to indicate we are going to kexec a new kernel */
+bool kexec_in_progress = false;
+
 /* vmcoreinfo stuff */
 static unsigned char vmcoreinfo_data[VMCOREINFO_BYTES];
 u32 vmcoreinfo_note[VMCOREINFO_NOTE_SIZE/4];
@@ -360,7 +363,11 @@ static struct page *kimage_alloc_pages(gfp_t gfp_mask, unsigned int order)
 {
 	struct page *pages;
 
+#ifdef kimage_alloc_pages_arch
+	pages = kimage_alloc_pages_arch(gfp_mask, order);
+#else
 	pages = alloc_pages(gfp_mask, order);
+#endif
 	if (pages) {
 		unsigned int count, i;
 		pages->mapping = NULL;
@@ -725,7 +732,7 @@ static struct page *kimage_alloc_page(struct kimage *image,
 		if (!page)
 			return NULL;
 		/* If the page cannot be used file it away */
-		if (page_to_pfn(page) >
+		if (page_to_pfn(page) >=
 				(KEXEC_SOURCE_MEMORY_LIMIT >> PAGE_SHIFT)) {
 			list_add(&page->lru, &image->unuseable_pages);
 			continue;
@@ -1565,6 +1572,7 @@ int kernel_kexec(void)
 	} else
 #endif
 	{
+		kexec_in_progress = true;
 		kernel_restart_prepare(NULL);
 		printk(KERN_EMERG "Starting new kernel\n");
 		machine_shutdown();

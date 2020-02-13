@@ -40,6 +40,7 @@ struct squashfs_cache {
 };
 
 struct squashfs_cache_entry {
+	struct super_block	*sb;
 	u64			block;
 	int			length;
 	int			refcount;
@@ -53,12 +54,11 @@ struct squashfs_cache_entry {
 };
 
 struct squashfs_sb_info {
+	struct file				*file;
+	unsigned int				offset;
 	const struct squashfs_decompressor	*decompressor;
 	int					devblksize;
 	int					devblksize_log2;
-	struct squashfs_cache			*block_cache;
-	struct squashfs_cache			*fragment_cache;
-	struct squashfs_cache			*read_page;
 	int					next_meta_index;
 	__le64					*id_table;
 	__le64					*fragment_index;

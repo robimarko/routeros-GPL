@@ -13,8 +13,9 @@
 #include <linux/mbus.h>
 #include <linux/io.h>
 #include <linux/gpio.h>
-#include <mach/hardware.h>
+//#include <mach/hardware.h>
 #include <plat/mpp.h>
+#include <plat/gpio.h>
 
 /* Address of the ith MPP control register */
 static __init unsigned long mpp_ctrl_addr(unsigned int i,

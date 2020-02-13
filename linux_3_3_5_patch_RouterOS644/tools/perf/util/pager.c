@@ -24,7 +24,7 @@ static void pager_preexec(void)
 	setenv("LESS", "FRSX", 0);
 }
 
-static const char *pager_argv[] = { "sh", "-c", NULL, NULL };
+static const char *pager_argv[] = { "/bin/bash", "-c", NULL, NULL };
 static struct child_process pager_process;
 
 static void wait_for_pager(void)

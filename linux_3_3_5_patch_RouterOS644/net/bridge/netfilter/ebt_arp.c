@@ -52,13 +52,13 @@ ebt_arp_mt(const struct sk_buff *skb, struct xt_action_param *par)
 		if (dap == NULL)
 			return false;
 		if (info->bitmask & EBT_ARP_SRC_IP &&
-		    FWINV(info->saddr != (*sap & info->smsk), EBT_ARP_SRC_IP))
+		    FWINV(info->saddr != (get_unaligned(sap) & info->smsk), EBT_ARP_SRC_IP))
 			return false;
 		if (info->bitmask & EBT_ARP_DST_IP &&
-		    FWINV(info->daddr != (*dap & info->dmsk), EBT_ARP_DST_IP))
+		    FWINV(info->daddr != (get_unaligned(dap) & info->dmsk), EBT_ARP_DST_IP))
 			return false;
 		if (info->bitmask & EBT_ARP_GRAT &&
-		    FWINV(*dap != *sap, EBT_ARP_GRAT))
+		    FWINV(get_unaligned(dap) != get_unaligned(sap), EBT_ARP_GRAT))
 			return false;
 	}
 

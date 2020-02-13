@@ -312,6 +312,8 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 #define SERDES_MAC_CLK_SLOWDOWN		0x20000
 #define SERDES_PYH_CLK_SLOWDOWN		0x40000
 
+#define REG_LED_CONFIG            	0x142c
+
 /* MAC Control Register  */
 #define REG_MAC_CTRL         		0x1480
 #define MAC_CTRL_TX_EN			0x1
@@ -670,9 +672,6 @@ int atl1c_phy_power_saving(struct atl1c_hw *hw);
 
 #define IMR_NORMAL_MASK		(\
 		ISR_MANUAL	|\
-		ISR_HW_RXF_OV	|\
-		ISR_RFD0_UR	|\
-		ISR_TXF_UR	|\
 		ISR_DMAR_TO_RST	|\
 		ISR_TXQ_TO_RST  |\
 		ISR_DMAW_TO_RST	|\

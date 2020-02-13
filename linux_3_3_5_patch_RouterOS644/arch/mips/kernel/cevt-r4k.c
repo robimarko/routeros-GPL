@@ -15,6 +15,7 @@
 #include <asm/smtc_ipi.h>
 #include <asm/time.h>
 #include <asm/cevt-r4k.h>
+#include <asm/gic.h>
 
 /*
  * The SMTC Kernel for the 34K, 1004K, et. al. replaces several
@@ -98,6 +99,10 @@ void mips_event_handler(struct clock_event_device *dev)
  */
 static int c0_compare_int_pending(void)
 {
+#ifdef CONFIG_IRQ_GIC
+	if (cpu_has_veic)
+		return gic_get_timer_pending();
+#endif
 	return (read_c0_cause() >> cp0_compare_irq_shift) & (1ul << CAUSEB_IP);
 }
 
@@ -106,6 +111,14 @@ static int c0_compare_int_pending(void)
  * so wait up to worst case number of cycle counter ticks for timer interrupt
  * changes to propagate to the cause register.
  */
+#define back_to_back_c0_hazard() \
+	do { \
+		back_to_back_c0_hazard(); \
+		back_to_back_c0_hazard(); \
+		back_to_back_c0_hazard(); \
+		back_to_back_c0_hazard(); \
+	} while (0)
+
 #define COMPARE_INT_SEEN_TICKS 50
 
 int c0_compare_int_usable(void)

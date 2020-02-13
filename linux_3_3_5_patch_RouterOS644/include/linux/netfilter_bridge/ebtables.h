@@ -14,6 +14,7 @@
 #define __LINUX_BRIDGE_EFF_H
 #include <linux/if.h>
 #include <linux/netfilter_bridge.h>
+#include <linux/netfilter/x_tables.h>
 #include <linux/if_ether.h>
 
 #define EBT_TABLE_MAXNAMELEN 32
@@ -85,7 +86,7 @@ struct ebt_entries {
 	/* nr. of entries */
 	unsigned int nentries;
 	/* entry list */
-	char data[0] __attribute__ ((aligned (__alignof__(struct ebt_replace))));
+	char data[0] __attribute__ ((aligned (__alignof__(struct _xt_align))));
 };
 
 /* used for the bitmask of struct ebt_entry */
@@ -124,7 +125,7 @@ struct ebt_entry_match {
 	} u;
 	/* size of data */
 	unsigned int match_size;
-	unsigned char data[0] __attribute__ ((aligned (__alignof__(struct ebt_replace))));
+	unsigned char data[0] __attribute__ ((aligned (__alignof__(struct _xt_align))));
 };
 
 struct ebt_entry_watcher {
@@ -134,7 +135,7 @@ struct ebt_entry_watcher {
 	} u;
 	/* size of data */
 	unsigned int watcher_size;
-	unsigned char data[0] __attribute__ ((aligned (__alignof__(struct ebt_replace))));
+	unsigned char data[0] __attribute__ ((aligned (__alignof__(struct _xt_align))));
 };
 
 struct ebt_entry_target {
@@ -144,7 +145,7 @@ struct ebt_entry_target {
 	} u;
 	/* size of data */
 	unsigned int target_size;
-	unsigned char data[0] __attribute__ ((aligned (__alignof__(struct ebt_replace))));
+	unsigned char data[0] __attribute__ ((aligned (__alignof__(struct _xt_align))));
 };
 
 #define EBT_STANDARD_TARGET "standard"
@@ -177,7 +178,7 @@ struct ebt_entry {
 	unsigned int target_offset;
 	/* sizeof ebt_entry + matches + watchers + target */
 	unsigned int next_offset;
-	unsigned char elems[0] __attribute__ ((aligned (__alignof__(struct ebt_replace))));
+	unsigned char elems[0] __attribute__ ((aligned (__alignof__(struct _xt_align))));
 };
 
 /* {g,s}etsockopt numbers */

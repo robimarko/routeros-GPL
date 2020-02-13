@@ -28,8 +28,34 @@
 #include <linux/reboot.h>
 #include <linux/hyperv.h>
 
-#include "hv_kvp.h"
+#include "hyperv_vmbus.h"
 
+
+#define SD_MAJOR	3
+#define SD_MINOR	0
+#define SD_VERSION	(SD_MAJOR << 16 | SD_MINOR)
+
+#define SD_WS2008_MAJOR		1
+#define SD_WS2008_VERSION	(SD_WS2008_MAJOR << 16 | SD_MINOR)
+
+#define TS_MAJOR	3
+#define TS_MINOR	0
+#define TS_VERSION	(TS_MAJOR << 16 | TS_MINOR)
+
+#define TS_WS2008_MAJOR		1
+#define TS_WS2008_VERSION	(TS_WS2008_MAJOR << 16 | TS_MINOR)
+
+#define HB_MAJOR	3
+#define HB_MINOR 0
+#define HB_VERSION	(HB_MAJOR << 16 | HB_MINOR)
+
+#define HB_WS2008_MAJOR	1
+#define HB_WS2008_VERSION	(HB_WS2008_MAJOR << 16 | HB_MINOR)
+
+static int sd_srv_version;
+static int ts_srv_version;
+static int hb_srv_version;
+static int util_fw_version;
 
 static void shutdown_onchannelcallback(void *context);
 static struct hv_util_service util_shutdown = {
@@ -50,6 +76,18 @@ static struct hv_util_service util_kvp = {
 	.util_cb = hv_kvp_onchannelcallback,
 	.util_init = hv_kvp_init,
 	.util_deinit = hv_kvp_deinit,
+};
+
+static struct hv_util_service util_vss = {
+	.util_cb = hv_vss_onchannelcallback,
+	.util_init = hv_vss_init,
+	.util_deinit = hv_vss_deinit,
+};
+
+static struct hv_util_service util_fcopy = {
+	.util_cb = hv_fcopy_onchannelcallback,
+	.util_init = hv_fcopy_init,
+	.util_deinit = hv_fcopy_deinit,
 };
 
 static void shutdown_onchannelcallback(void *context)
@@ -73,7 +111,9 @@ static void shutdown_onchannelcallback(void *context)
 			sizeof(struct vmbuspipe_hdr)];
 
 		if (icmsghdrp->icmsgtype == ICMSGTYPE_NEGOTIATE) {
-			vmbus_prep_negotiate_resp(icmsghdrp, negop, shut_txf_buf);
+			vmbus_prep_negotiate_resp(icmsghdrp, negop,
+					shut_txf_buf, util_fw_version,
+					sd_srv_version);
 		} else {
 			shutdown_msg =
 				(struct shutdown_msg_data *)&shut_txf_buf[
@@ -189,6 +229,7 @@ static void timesync_onchannelcallback(void *context)
 	struct icmsg_hdr *icmsghdrp;
 	struct ictimesync_data *timedatap;
 	u8 *time_txf_buf = util_timesynch.recv_buffer;
+	struct icmsg_negotiate *negop = NULL;
 
 	vmbus_recvpacket(channel, time_txf_buf,
 			 PAGE_SIZE, &recvlen, &requestid);
@@ -198,7 +239,10 @@ static void timesync_onchannelcallback(void *context)
 				sizeof(struct vmbuspipe_hdr)];
 
 		if (icmsghdrp->icmsgtype == ICMSGTYPE_NEGOTIATE) {
-			vmbus_prep_negotiate_resp(icmsghdrp, NULL, time_txf_buf);
+			vmbus_prep_negotiate_resp(icmsghdrp, negop,
+						time_txf_buf,
+						util_fw_version,
+						ts_srv_version);
 		} else {
 			timedatap = (struct ictimesync_data *)&time_txf_buf[
 				sizeof(struct vmbuspipe_hdr) +
@@ -228,6 +272,7 @@ static void heartbeat_onchannelcallback(void *context)
 	struct icmsg_hdr *icmsghdrp;
 	struct heartbeat_msg_data *heartbeat_msg;
 	u8 *hbeat_txf_buf = util_heartbeat.recv_buffer;
+	struct icmsg_negotiate *negop = NULL;
 
 	vmbus_recvpacket(channel, hbeat_txf_buf,
 			 PAGE_SIZE, &recvlen, &requestid);
@@ -237,7 +282,9 @@ static void heartbeat_onchannelcallback(void *context)
 				sizeof(struct vmbuspipe_hdr)];
 
 		if (icmsghdrp->icmsgtype == ICMSGTYPE_NEGOTIATE) {
-			vmbus_prep_negotiate_resp(icmsghdrp, NULL, hbeat_txf_buf);
+			vmbus_prep_negotiate_resp(icmsghdrp, negop,
+				hbeat_txf_buf, util_fw_version,
+				hb_srv_version);
 		} else {
 			heartbeat_msg =
 				(struct heartbeat_msg_data *)&hbeat_txf_buf[
@@ -259,13 +306,16 @@ static void heartbeat_onchannelcallback(void *context)
 static int util_probe(struct hv_device *dev,
 			const struct hv_vmbus_device_id *dev_id)
 {
+	if (hv_vmbus_disabled()) return -ENODEV;
+
 	struct hv_util_service *srv =
 		(struct hv_util_service *)dev_id->driver_data;
 	int ret;
 
-	srv->recv_buffer = kmalloc(PAGE_SIZE, GFP_KERNEL);
+	srv->recv_buffer = kmalloc(PAGE_SIZE * 4, GFP_KERNEL);
 	if (!srv->recv_buffer)
 		return -ENOMEM;
+	srv->channel = dev->channel;
 	if (srv->util_init) {
 		ret = srv->util_init(srv);
 		if (ret) {
@@ -274,12 +324,41 @@ static int util_probe(struct hv_device *dev,
 		}
 	}
 
-	ret = vmbus_open(dev->channel, 2 * PAGE_SIZE, 2 * PAGE_SIZE, NULL, 0,
+	/*
+	 * The set of services managed by the util driver are not performance
+	 * critical and do not need batched reading. Furthermore, some services
+	 * such as KVP can only handle one message from the host at a time.
+	 * Turn off batched reading for all util drivers before we open the
+	 * channel.
+	 */
+
+	set_channel_read_state(dev->channel, false);
+
+	ret = vmbus_open(dev->channel, 4 * PAGE_SIZE, 4 * PAGE_SIZE, NULL, 0,
 			srv->util_cb, dev->channel);
 	if (ret)
 		goto error;
 
 	hv_set_drvdata(dev, srv);
+	/*
+	 * Based on the host; initialize the framework and
+	 * service version numbers we will negotiate.
+	 */
+	switch (vmbus_proto_version) {
+	case (VERSION_WS2008):
+		util_fw_version = UTIL_WS2K8_FW_VERSION;
+		sd_srv_version = SD_WS2008_VERSION;
+		ts_srv_version = TS_WS2008_VERSION;
+		hb_srv_version = HB_WS2008_VERSION;
+		break;
+
+	default:
+		util_fw_version = UTIL_FW_VERSION;
+		sd_srv_version = SD_VERSION;
+		ts_srv_version = TS_VERSION;
+		hb_srv_version = HB_VERSION;
+	}
+
 	return 0;
 
 error:
@@ -319,6 +398,14 @@ static const struct hv_vmbus_device_id id_table[] = {
 	{ VMBUS_DEVICE(0xe7, 0xf4, 0xa0, 0xa9, 0x45, 0x5a, 0x96, 0x4d,
 		       0xb8, 0x27, 0x8a, 0x84, 0x1e, 0x8c, 0x3,  0xe6)
 	  .driver_data = (unsigned long)&util_kvp },
+	/* VSS guid */
+	{ VMBUS_DEVICE(0x29, 0x2e, 0xfa, 0x35, 0x23, 0xea, 0x36, 0x42,
+		       0x96, 0xae, 0x3a, 0x6e, 0xba, 0xcb, 0xa4,  0x40)
+	  .driver_data = (unsigned long)&util_vss },
+	/* File copy guid */
+	{ VMBUS_DEVICE(0xE3, 0x4B, 0xD1, 0x34, 0xE4, 0xDE, 0xC8, 0x41,
+		       0x9A, 0xE7, 0x6B, 0x17, 0x49, 0x77, 0xC1, 0x92)
+	  .driver_data = (unsigned long)&util_fcopy },
 	{ },
 };
 
@@ -334,6 +421,7 @@ static  struct hv_driver util_drv = {
 
 static int __init init_hyperv_utils(void)
 {
+	if (hv_vmbus_disabled()) return 0;
 	pr_info("Registering HyperV Utility Driver\n");
 
 	return vmbus_driver_register(&util_drv);

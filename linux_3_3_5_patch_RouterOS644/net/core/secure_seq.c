@@ -9,6 +9,7 @@
 #include <linux/string.h>
 
 #include <net/secure_seq.h>
+#include <asm/unaligned.h>
 
 static u32 net_secret[MD5_MESSAGE_BYTES / 4] ____cacheline_aligned;
 
@@ -46,7 +47,7 @@ __u32 secure_tcpv6_sequence_number(const __be32 *saddr, const __be32 *daddr,
 
 	memcpy(hash, saddr, 16);
 	for (i = 0; i < 4; i++)
-		secret[i] = net_secret[i] + (__force u32)daddr[i];
+		secret[i] = net_secret[i] + (__force u32) get_unaligned(&daddr[i]);
 	secret[4] = net_secret[4] +
 		(((__force u16)sport << 16) + (__force u16)dport);
 	for (i = 5; i < MD5_MESSAGE_BYTES / 4; i++)
@@ -67,7 +68,7 @@ u32 secure_ipv6_port_ephemeral(const __be32 *saddr, const __be32 *daddr,
 
 	memcpy(hash, saddr, 16);
 	for (i = 0; i < 4; i++)
-		secret[i] = net_secret[i] + (__force u32) daddr[i];
+		secret[i] = net_secret[i] + (__force u32) get_unaligned(&daddr[i]);
 	secret[4] = net_secret[4] + (__force u32)dport;
 	for (i = 5; i < MD5_MESSAGE_BYTES / 4; i++)
 		secret[i] = net_secret[i];
@@ -117,6 +118,7 @@ __u32 secure_tcp_sequence_number(__be32 saddr, __be32 daddr,
 
 	return seq_scale(hash[0]);
 }
+EXPORT_SYMBOL_GPL(secure_tcp_sequence_number);
 
 u32 secure_ipv4_port_ephemeral(__be32 saddr, __be32 daddr, __be16 dport)
 {

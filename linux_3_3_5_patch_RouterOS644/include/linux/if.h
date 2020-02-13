@@ -45,7 +45,8 @@
 #define IFF_MULTICAST	0x1000		/* Supports multicast		*/
 
 #define IFF_PORTSEL	0x2000          /* can set media type		*/
-#define IFF_AUTOMEDIA	0x4000		/* auto media select active	*/
+#define IFF_NOARP4	0x4000		/* no IPv4 ARP protocol         */
+#define IFF_AUTOMEDIA	0x80000		/* auto media select active	*/
 #define IFF_DYNAMIC	0x8000		/* dialup device with changing addresses*/
 
 #define IFF_LOWER_UP	0x10000		/* driver signals L1 up		*/
@@ -80,6 +81,7 @@
 					 * skbs on transmit */
 #define IFF_UNICAST_FLT	0x20000		/* Supports unicast filtering	*/
 #define IFF_TEAM_PORT	0x40000		/* device used as team port */
+#define IFF_SWITCH_PORT	0x80000		/* device is a switch port */
 
 #define IF_GET_IFACE	0x0001		/* for querying only */
 #define IF_GET_PROTO	0x0002
@@ -92,6 +94,7 @@
 #define IF_IFACE_E1	0x1004		/* E1 telco serial interface	*/
 #define IF_IFACE_SYNC_SERIAL 0x1005	/* can't be set by software	*/
 #define IF_IFACE_X21D   0x1006          /* X.21 Dual Clocking (FarSite) */
+#define IF_IFACE_SHDSL  0x1007          /* SHDSL (FarSite)              */
 
 /* For definitions see hdlc.h */
 #define IF_PROTO_HDLC	0x2000		/* raw HDLC protocol		*/

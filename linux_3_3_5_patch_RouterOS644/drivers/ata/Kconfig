@@ -870,6 +870,31 @@ config PATA_WINBOND_VLB
 	  Support for the Winbond W83759A controller on Vesa Local Bus
 	  systems.
 
+config PATA_RBPPC
+	tristate "Mikrotik PowerPC Routerboard Compact Flash support"
+	depends on PPC
+	help
+	  This option enables support for a Compact Flash on
+          Mikrotik PowerPC Routerboards
+
+	  If unsure, say N.
+
+config PATA_RB500
+	tristate "Mikrotik RB500 Compact Flash support"
+	depends on MIPS_MIKROTIK
+	help
+	  This option enables support for a Compact Flash on Mikrotik RB500
+
+	  If unsure, say N.
+
+config PATA_RB100
+	tristate "Mikrotik RB100 Compact Flash support"
+	depends on MIPS_MIKROTIK
+	help
+	  This option enables support for a Compact Flash on Mikrotik RB100
+
+	  If unsure, say N.
+
 comment "Generic fallback / legacy drivers"
 
 config PATA_ACPI

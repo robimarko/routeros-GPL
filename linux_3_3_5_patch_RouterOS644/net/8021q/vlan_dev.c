@@ -71,6 +71,7 @@ static int vlan_dev_rebuild_header(struct sk_buff *skb)
 static inline u16
 vlan_dev_get_egress_qos_mask(struct net_device *dev, struct sk_buff *skb)
 {
+#if 0
 	struct vlan_priority_tci_mapping *mp;
 
 	mp = vlan_dev_priv(dev)->egress_priority_map[(skb->priority & 0xF)];
@@ -83,6 +84,9 @@ vlan_dev_get_egress_qos_mask(struct net_device *dev, struct sk_buff *skb)
 		mp = mp->next;
 	}
 	return 0;
+#else
+	return (skb->priority & 0x7) << 13;
+#endif
 }
 
 /*
@@ -120,8 +124,8 @@ static int vlan_dev_hard_header(struct sk_buff *skb, struct net_device *dev,
 		else
 			vhdr->h_vlan_encapsulated_proto = htons(len);
 
-		skb->protocol = htons(ETH_P_8021Q);
-		type = ETH_P_8021Q;
+		skb->protocol = htons(vlan_dev_priv(dev)->vlan_proto);
+		type = vlan_dev_priv(dev)->vlan_proto;
 		vhdrlen = VLAN_HLEN;
 	}
 
@@ -140,7 +144,9 @@ static int vlan_dev_hard_header(struct sk_buff *skb, struct net_device *dev,
 static netdev_tx_t vlan_dev_hard_start_xmit(struct sk_buff *skb,
 					    struct net_device *dev)
 {
+#ifdef NO_VLAN_IN_VLAN
 	struct vlan_ethhdr *veth = (struct vlan_ethhdr *)(skb->data);
+#endif
 	unsigned int len;
 	int ret;
 
@@ -149,12 +155,43 @@ static netdev_tx_t vlan_dev_hard_start_xmit(struct sk_buff *skb,
 	 * NOTE: THIS ASSUMES DIX ETHERNET, SPECIFICALLY NOT SUPPORTING
 	 * OTHER THINGS LIKE FDDI/TokenRing/802.3 SNAPs...
 	 */
-	if (veth->h_vlan_proto != htons(ETH_P_8021Q) ||
+#ifndef NO_VLAN_IN_VLAN
+#if 0 /* Allow QinQinQ... introduces risk of having loops!!! */
+	if (ANY_VLAN_PROTO_N(veth->h_vlan_proto)
+		&& ANY_VLAN_PROTO_N(veth->h_vlan_encapsulated_proto)) {
+		/* already double encapsulated, drop so we do not loop it in */
+		kfree_skb(skb);
+		return 0;
+	}
+#endif
+	if (1) {
+#else
+	if (!ANY_VLAN_PROTO_N(veth->h_vlan_proto) ||
 	    vlan_dev_priv(dev)->flags & VLAN_FLAG_REORDER_HDR) {
+#endif
 		u16 vlan_tci;
+		{
+			struct net_device *rd = vlan_dev_priv(dev)->real_dev;
+			if (rd->l2mtu
+			    && (skb->len - ETH_HLEN + VLAN_HLEN) > rd->l2mtu) {
+				this_cpu_inc(vlan_dev_priv(dev)->vlan_pcpu_stats->tx_dropped);
+				kfree_skb(skb);
+				return NETDEV_TX_OK;
+			}
+		}
+
 		vlan_tci = vlan_dev_priv(dev)->vlan_id;
 		vlan_tci |= vlan_dev_get_egress_qos_mask(dev, skb);
+		if (vlan_dev_priv(dev)->vlan_proto == ETH_P_8021Q) {
 		skb = __vlan_hwaccel_put_tag(skb, vlan_tci);
+		} else {
+			skb = __vlan_put_tag(skb, vlan_tci,
+					     vlan_dev_priv(dev)->vlan_proto);
+			if (!skb) {
+				this_cpu_inc(vlan_dev_priv(dev)->vlan_pcpu_stats->tx_dropped);
+				return NETDEV_TX_OK;
+			}
+		}
 	}
 
 	skb_set_dev(skb, vlan_dev_priv(dev)->real_dev);
@@ -183,8 +220,12 @@ static int vlan_dev_change_mtu(struct net_device *dev, int new_mtu)
 	/* TODO: gotta make sure the underlying layer can handle it,
 	 * maybe an IFF_VLAN_CAPABLE flag for devices?
 	 */
-	if (vlan_dev_priv(dev)->real_dev->mtu < new_mtu)
+	struct net_device *rd = vlan_dev_priv(dev)->real_dev;
+	if (rd->l2mtu == 0 && rd->mtu < new_mtu)
 		return -ERANGE;
+	if (dev->l2mtu && new_mtu > dev->l2mtu) {
+		return -ERANGE;
+	}
 
 	dev->mtu = new_mtu;
 
@@ -301,6 +342,7 @@ static int vlan_dev_open(struct net_device *dev)
 
 	if (netif_carrier_ok(real_dev))
 		netif_carrier_on(dev);
+	netif_tx_start_all_queues(dev);
 	return 0;
 
 clear_allmulti:
@@ -319,6 +361,7 @@ static int vlan_dev_stop(struct net_device *dev)
 	struct vlan_dev_priv *vlan = vlan_dev_priv(dev);
 	struct net_device *real_dev = vlan->real_dev;
 
+	netif_tx_stop_all_queues(dev);
 	dev_mc_unsync(real_dev, dev);
 	dev_uc_unsync(real_dev, dev);
 	if (dev->flags & IFF_ALLMULTI)
@@ -556,13 +599,18 @@ static int vlan_dev_init(struct net_device *dev)
 #endif
 
 	dev->needed_headroom = real_dev->needed_headroom;
-	if (real_dev->features & NETIF_F_HW_VLAN_TX) {
+#if 0
+	if (vlan_dev_priv(dev)->vlan_proto == ETH_P_8021Q
+	    && real_dev->features & NETIF_F_HW_VLAN_TX) {
 		dev->header_ops      = real_dev->header_ops;
 		dev->hard_header_len = real_dev->hard_header_len;
 	} else {
 		dev->header_ops      = &vlan_header_ops;
 		dev->hard_header_len = real_dev->hard_header_len + VLAN_HLEN;
 	}
+#endif
+	dev->header_ops      = real_dev->header_ops;
+	dev->hard_header_len = real_dev->hard_header_len + VLAN_HLEN;
 
 	dev->netdev_ops = &vlan_netdev_ops;
 
@@ -727,7 +775,6 @@ static const struct net_device_ops vlan_netdev_ops = {
 	.ndo_open		= vlan_dev_open,
 	.ndo_stop		= vlan_dev_stop,
 	.ndo_start_xmit =  vlan_dev_hard_start_xmit,
-	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_mac_address	= vlan_dev_set_mac_address,
 	.ndo_set_rx_mode	= vlan_dev_set_rx_mode,
 	.ndo_change_rx_flags	= vlan_dev_change_rx_flags,

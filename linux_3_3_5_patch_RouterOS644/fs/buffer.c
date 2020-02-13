@@ -41,6 +41,9 @@
 #include <linux/bitops.h>
 #include <linux/mpage.h>
 #include <linux/bit_spinlock.h>
+#ifdef CONFIG_HOMECACHE
+#include <asm/homecache.h>
+#endif
 
 static int fsync_buffers_list(spinlock_t *lock, struct list_head *list);
 
@@ -2614,6 +2617,9 @@ int nobh_writepage(struct page *page, get_block_t *get_block,
 	 * the  page size, the remaining memory is zeroed when mapped, and
 	 * writes to that region are not written out to the file."
 	 */
+#ifdef CONFIG_HOMECACHE
+	homecache_make_writable(page, PAGE_CACHE_SHIFT - PAGE_SHIFT);
+#endif
 	zero_user_segment(page, offset, PAGE_CACHE_SIZE);
 out:
 	ret = mpage_writepage(page, get_block, wbc);
@@ -2815,6 +2821,9 @@ int block_write_full_page_endio(struct page *page, get_block_t *get_block,
 	 * the  page size, the remaining memory is zeroed when mapped, and
 	 * writes to that region are not written out to the file."
 	 */
+#ifdef CONFIG_HOMECACHE
+	homecache_make_writable(page, PAGE_CACHE_SHIFT - PAGE_SHIFT);
+#endif
 	zero_user_segment(page, offset, PAGE_CACHE_SIZE);
 	return __block_write_full_page(inode, page, get_block, wbc, handler);
 }

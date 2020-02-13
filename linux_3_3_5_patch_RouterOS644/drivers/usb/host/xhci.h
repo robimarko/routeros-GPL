@@ -1652,6 +1652,11 @@ static inline int xhci_register_pci(void) { return 0; }
 static inline void xhci_unregister_pci(void) {}
 #endif
 
+struct xhci_plat_data {
+        unsigned vendor;
+        unsigned revision;
+};
+
 /* xHCI host controller glue */
 typedef void (*xhci_get_quirks_t)(struct device *, struct xhci_hcd *);
 void xhci_quiesce(struct xhci_hcd *xhci);

@@ -1704,10 +1704,12 @@ static void read_symbols(char *modname)
 	}
 
 	license = get_modinfo(info.modinfo, info.modinfo_len, "license");
+#if 0
 	if (info.modinfo && !license && !is_vmlinux(modname))
 		warn("modpost: missing MODULE_LICENSE() in %s\n"
 		     "see include/linux/module.h for "
 		     "more information\n", modname);
+#endif
 	while (license) {
 		if (license_is_gpl_compatible(license))
 			mod->gpl_compatible = 1;
@@ -2003,6 +2005,7 @@ static void write_if_changed(struct buffer *b, const char *fname)
  close_write:
 	fclose(file);
  write:
+	unlink(fname);
 	file = fopen(fname, "w");
 	if (!file) {
 		perror(fname);

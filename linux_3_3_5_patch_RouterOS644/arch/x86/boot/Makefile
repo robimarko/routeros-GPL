@@ -70,7 +70,7 @@ GCOV_PROFILE := n
 $(obj)/bzImage: asflags-y  := $(SVGA_MODE)
 
 quiet_cmd_image = BUILD   $@
-cmd_image = $(obj)/tools/build $(obj)/setup.bin $(obj)/vmlinux.bin > $@
+cmd_image = rm -f $@ && $(obj)/tools/build $(obj)/setup.bin $(obj)/vmlinux.bin > $@
 
 $(obj)/bzImage: $(obj)/setup.bin $(obj)/vmlinux.bin $(obj)/tools/build FORCE
 	$(call if_changed,image)
@@ -85,7 +85,7 @@ SETUP_OBJS = $(addprefix $(obj)/,$(setup-y))
 sed-voffset := -e 's/^\([0-9a-fA-F]*\) . \(_text\|_end\)$$/\#define VO_\2 0x\1/p'
 
 quiet_cmd_voffset = VOFFSET $@
-      cmd_voffset = $(NM) $< | sed -n $(sed-voffset) > $@
+      cmd_voffset = rm -f $@ && $(NM) $< | sed -n $(sed-voffset) > $@
 
 targets += voffset.h
 $(obj)/voffset.h: vmlinux FORCE
@@ -94,7 +94,7 @@ $(obj)/voffset.h: vmlinux FORCE
 sed-zoffset := -e 's/^\([0-9a-fA-F]*\) . \(startup_32\|input_data\|_end\|z_.*\)$$/\#define ZO_\2 0x\1/p'
 
 quiet_cmd_zoffset = ZOFFSET $@
-      cmd_zoffset = $(NM) $< | sed -n $(sed-zoffset) > $@
+      cmd_zoffset = rm -f $@ && $(NM) $< | sed -n $(sed-zoffset) > $@
 
 targets += zoffset.h
 $(obj)/zoffset.h: $(obj)/compressed/vmlinux FORCE

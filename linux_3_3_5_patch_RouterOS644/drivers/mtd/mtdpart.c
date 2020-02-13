@@ -602,7 +602,7 @@ int mtd_add_partition(struct mtd_info *master, char *name,
 			    (start < (p->offset + p->mtd.size)))
 				goto err_inv;
 
-			if ((end >= p->offset) &&
+			if ((end > p->offset) &&
 			    (end < (p->offset + p->mtd.size)))
 				goto err_inv;
 		}

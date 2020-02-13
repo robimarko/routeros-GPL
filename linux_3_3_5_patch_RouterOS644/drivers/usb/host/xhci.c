@@ -4051,6 +4051,9 @@ MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_LICENSE("GPL");
 
+extern int xhci_register_plat(void);
+extern void xhci_unregister_plat(void);
+
 static int __init xhci_hcd_init(void)
 {
 	int retval;
@@ -4058,6 +4061,12 @@ static int __init xhci_hcd_init(void)
 	retval = xhci_register_pci();
 	if (retval < 0) {
 		printk(KERN_DEBUG "Problem registering PCI driver.");
+		return retval;
+	}
+	retval = xhci_register_plat();
+	if (retval < 0) {
+		printk(KERN_DEBUG "Problem registering platform driver.");
+		xhci_unregister_pci();
 		return retval;
 	}
 	/*
@@ -4085,5 +4094,6 @@ module_init(xhci_hcd_init);
 static void __exit xhci_hcd_cleanup(void)
 {
 	xhci_unregister_pci();
+	xhci_unregister_plat();
 }
 module_exit(xhci_hcd_cleanup);

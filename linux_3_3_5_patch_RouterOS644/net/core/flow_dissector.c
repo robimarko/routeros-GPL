@@ -136,7 +136,7 @@ ipv6:
 		nhoff += poff;
 		ports = skb_header_pointer(skb, nhoff, sizeof(_ports), &_ports);
 		if (ports)
-			flow->ports = *ports;
+			flow->ports = get_unaligned_be32(ports);
 	}
 
 	return true;

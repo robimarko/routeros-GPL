@@ -13,6 +13,9 @@
 #include <linux/atomic.h>
 #include <asm/page.h>
 #include <asm/pgtable.h>
+#ifdef CONFIG_HOMECACHE
+#include <asm/homecache.h>
+#endif
 #include "internal.h"
 
 void __attribute__((weak)) arch_report_meminfo(struct seq_file *m)
@@ -165,6 +168,15 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 		   HPAGE_PMD_NR)
 #endif
 		);
+
+#ifdef CONFIG_HOMECACHE
+	seq_printf(m, "Sequestered:    %8lu kB\n",
+		   K(homecache_count_sequestered_pages(1, 1)));
+#ifdef CONFIG_HIGHMEM
+	seq_printf(m, "LowSequestered: %8lu kB\n",
+		   K(homecache_count_sequestered_pages(0, 1)));
+#endif
+#endif
 
 	hugetlb_report_meminfo(m);
 

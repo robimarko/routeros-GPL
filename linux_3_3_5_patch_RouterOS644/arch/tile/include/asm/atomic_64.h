@@ -109,7 +109,7 @@ static inline void atomic64_add(long i, atomic64_t *v)
 
 static inline long atomic64_add_return(long i, atomic64_t *v)
 {
-	int val;
+	long val;
 	smp_mb();  /* barrier for proper semantics */
 	val = __insn_fetchadd((void *)&v->counter, i) + i;
 	barrier();  /* the "+ i" above will wait on memory */

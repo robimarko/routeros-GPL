@@ -14,7 +14,6 @@
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/smp.h>
-#include <linux/completion.h>
 #include <linux/percpu.h>
 #include <linux/bitops.h>
 #include <linux/notifier.h>
@@ -48,8 +47,6 @@ struct flow_cache_percpu {
 
 struct flow_flush_info {
 	struct flow_cache		*cache;
-	atomic_t			cpuleft;
-	struct completion		completion;
 };
 
 struct flow_cache {
@@ -100,7 +97,7 @@ static void flow_entry_kill(struct flow_cache_entry *fle)
 	kmem_cache_free(flow_cachep, fle);
 }
 
-static void flow_cache_gc_task(struct work_struct *work)
+static void flow_cache_gc_task(void)
 {
 	struct list_head gc_list;
 	struct flow_cache_entry *fce, *n;
@@ -113,7 +110,6 @@ static void flow_cache_gc_task(struct work_struct *work)
 	list_for_each_entry_safe(fce, n, &gc_list, u.gc_list)
 		flow_entry_kill(fce);
 }
-static DECLARE_WORK(flow_cache_gc_work, flow_cache_gc_task);
 
 static void flow_cache_queue_garbage(struct flow_cache_percpu *fcp,
 				     int deleted, struct list_head *gc_list)
@@ -123,7 +119,7 @@ static void flow_cache_queue_garbage(struct flow_cache_percpu *fcp,
 		spin_lock_bh(&flow_cache_gc_lock);
 		list_splice_tail(gc_list, &flow_cache_gc_list);
 		spin_unlock_bh(&flow_cache_gc_lock);
-		schedule_work(&flow_cache_gc_work);
+		flow_cache_gc_task();
 	}
 }
 
@@ -320,8 +316,24 @@ static void flow_cache_flush_tasklet(unsigned long data)
 
 	flow_cache_queue_garbage(fcp, deleted, &gc_list);
 
-	if (atomic_dec_and_test(&info->cpuleft))
-		complete(&info->completion);
+}
+
+/*
+ * Return whether a cpu needs flushing.  Conservatively, we assume
+ * the presence of any entries means the core may require flushing,
+ * since the flow_cache_ops.check() function may assume it's running
+ * on the same core as the per-cpu cache component.
+ */
+static int flow_cache_percpu_empty(struct flow_cache *fc, int cpu)
+{
+	struct flow_cache_percpu *fcp;
+	int i;
+
+	fcp = &per_cpu(*fc->percpu, cpu);
+	for (i = 0; i < flow_cache_hash_size(fc); i++)
+		if (!hlist_empty(&fcp->hash_table[i]))
+			return 0;
+	return 1;
 }
 
 static void flow_cache_flush_per_cpu(void *data)
@@ -336,26 +348,55 @@ static void flow_cache_flush_per_cpu(void *data)
 	tasklet_schedule(tasklet);
 }
 
+void __weak on_each_cpu_mask(const struct cpumask *mask, smp_call_func_t func,
+			void *info, bool wait)
+{
+	int cpu = get_cpu();
+
+	smp_call_function_many(mask, func, info, wait);
+	if (cpumask_test_cpu(cpu, mask)) {
+		unsigned long flags;
+		local_irq_save(flags);
+		func(info);
+		local_irq_restore(flags);
+	}
+	put_cpu();
+}
+
 void flow_cache_flush(void)
 {
-	struct flow_flush_info info;
-	static DEFINE_MUTEX(flow_flush_sem);
+	static struct flow_flush_info info;
+	static DEFINE_SPINLOCK(flow_flush_lock);
+	cpumask_var_t mask;
+	int i, self;
+
+	/* Track which cpus need flushing to avoid disturbing all cores. */
+	if (!alloc_cpumask_var(&mask, GFP_KERNEL))
+		return;
+	cpumask_clear(mask);
 
 	/* Don't want cpus going down or up during this. */
 	get_online_cpus();
-	mutex_lock(&flow_flush_sem);
+	spin_lock_bh(&flow_flush_lock);
 	info.cache = &flow_cache_global;
-	atomic_set(&info.cpuleft, num_online_cpus());
-	init_completion(&info.completion);
+	for_each_online_cpu(i)
+		if (!flow_cache_percpu_empty(info.cache, i))
+			cpumask_set_cpu(i, mask);
+
+	if (cpumask_weight(mask) == 0)
+		goto done;
 
 	local_bh_disable();
-	smp_call_function(flow_cache_flush_per_cpu, &info, 0);
+	self = cpumask_test_and_clear_cpu(smp_processor_id(), mask);
+	on_each_cpu_mask(mask, flow_cache_flush_per_cpu, &info, 0);
+	if (self)
 	flow_cache_flush_tasklet((unsigned long)&info);
 	local_bh_enable();
 
-	wait_for_completion(&info.completion);
-	mutex_unlock(&flow_flush_sem);
+done:
+	spin_unlock_bh(&flow_flush_lock);
 	put_online_cpus();
+	free_cpumask_var(mask);
 }
 
 static void flow_cache_flush_task(struct work_struct *work)

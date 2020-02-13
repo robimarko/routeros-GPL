@@ -62,6 +62,7 @@ static int statfs_by_dentry(struct dentry *dentry, struct kstatfs *buf)
 		buf->f_frsize = buf->f_bsize;
 	return retval;
 }
+EXPORT_SYMBOL(statfs_by_dentry);
 
 int vfs_statfs(struct path *path, struct kstatfs *buf)
 {

@@ -11,6 +11,7 @@
 #include <linux/module.h>
 #include <linux/netfilter_ipv6/ip6_tables.h>
 #include <linux/slab.h>
+#include <asm/unaligned.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Netfilter Core Team <coreteam@netfilter.org>");
@@ -36,7 +37,7 @@ ip6t_mangle_out(struct sk_buff *skb, const struct net_device *out)
 	unsigned int ret;
 	struct in6_addr saddr, daddr;
 	u_int8_t hop_limit;
-	u_int32_t flowlabel, mark;
+	u_int32_t flowlabel, prmark;
 
 #if 0
 	/* root is playing with raw sockets. */
@@ -48,14 +49,14 @@ ip6t_mangle_out(struct sk_buff *skb, const struct net_device *out)
 	}
 #endif
 
-	/* save source/dest address, mark, hoplimit, flowlabel, priority,  */
+	/* save source/dest address, prmark, hoplimit, flowlabel, priority,  */
 	memcpy(&saddr, &ipv6_hdr(skb)->saddr, sizeof(saddr));
 	memcpy(&daddr, &ipv6_hdr(skb)->daddr, sizeof(daddr));
-	mark = skb->mark;
+	prmark = skb->prmark;
 	hop_limit = ipv6_hdr(skb)->hop_limit;
 
 	/* flowlabel and prio (includes version, which shouldn't change either */
-	flowlabel = *((u_int32_t *)ipv6_hdr(skb));
+	flowlabel = get_unaligned((u_int32_t *)ipv6_hdr(skb));
 
 	ret = ip6t_do_table(skb, NF_INET_LOCAL_OUT, NULL, out,
 			    dev_net(out)->ipv6.ip6table_mangle);
@@ -63,9 +64,9 @@ ip6t_mangle_out(struct sk_buff *skb, const struct net_device *out)
 	if (ret != NF_DROP && ret != NF_STOLEN &&
 	    (memcmp(&ipv6_hdr(skb)->saddr, &saddr, sizeof(saddr)) ||
 	     memcmp(&ipv6_hdr(skb)->daddr, &daddr, sizeof(daddr)) ||
-	     skb->mark != mark ||
+	     skb->prmark != prmark ||
 	     ipv6_hdr(skb)->hop_limit != hop_limit ||
-	     flowlabel != *((u_int32_t *)ipv6_hdr(skb))))
+	     flowlabel != get_unaligned((u_int32_t *)ipv6_hdr(skb))))
 		return ip6_route_me_harder(skb) == 0 ? ret : NF_DROP;
 
 	return ret;

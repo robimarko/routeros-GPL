@@ -83,6 +83,7 @@ int usbnet_generic_cdc_bind(struct usbnet *dev, struct usb_interface *intf)
 	struct cdc_state		*info = (void *) &dev->data;
 	int				status;
 	int				rndis;
+        bool                            android_rndis_quirk = false;
 	struct usb_driver		*driver = driver_of(intf);
 	struct usb_cdc_mdlm_desc	*desc = NULL;
 	struct usb_cdc_mdlm_detail_desc *detail = NULL;
@@ -195,6 +196,11 @@ int usbnet_generic_cdc_bind(struct usbnet *dev, struct usb_interface *intf)
 					info->control,
 					info->u->bSlaveInterface0,
 					info->data);
+				/* fall back to hard-wiring for RNDIS */
+				if (rndis) {
+					android_rndis_quirk = true;
+					goto next_desc;
+				}
 				goto bad_desc;
 			}
 			if (info->control != intf) {
@@ -272,7 +278,7 @@ next_desc:
 	 * CDC descriptors, so we'll hard-wire the interfaces and not check
 	 * for descriptors.
 	 */
-	if (rndis && !info->u) {
+	if (rndis && (!info->u || android_rndis_quirk)) {
 		info->control = usb_ifnum_to_if(dev->udev, 0);
 		info->data = usb_ifnum_to_if(dev->udev, 1);
 		if (!info->control || !info->data) {
@@ -443,6 +449,7 @@ int usbnet_cdc_bind(struct usbnet *dev, struct usb_interface *intf)
 	 * in routine cases.  info->ether describes the multicast support.
 	 * Implement that here, manipulating the cdc filter as needed.
 	 */
+
 	return 0;
 }
 EXPORT_SYMBOL_GPL(usbnet_cdc_bind);
@@ -453,9 +460,21 @@ static int cdc_manage_power(struct usbnet *dev, int on)
 	return 0;
 }
 
-static const struct driver_info	cdc_info = {
+static const struct driver_info	cdc_info_ether = {
 	.description =	"CDC Ethernet Device",
-	.flags =	FLAG_ETHER | FLAG_POINTTOPOINT,
+	.flags =	FLAG_POINTTOPOINT | FLAG_ETHER,
+	// .check_connect = cdc_check_connect,
+	.bind =		usbnet_cdc_bind,
+	.unbind =	usbnet_cdc_unbind,
+	.status =	usbnet_cdc_status,
+	.manage_power =	cdc_manage_power,
+};
+
+static const struct driver_info	cdc_info = {
+	.description =	"CDC Modem Device",
+        // XXX - needed for ROS to distinguish modem from ether
+	//.flags =	FLAG_POINTTOPOINT | FLAG_ETHER,
+	.flags =	FLAG_POINTTOPOINT | FLAG_WWAN,
 	// .check_connect = cdc_check_connect,
 	.bind =		usbnet_cdc_bind,
 	.unbind =	usbnet_cdc_unbind,
@@ -592,6 +611,15 @@ static const struct usb_device_id	products [] = {
  * because of bugs/quirks in a given product (like Zaurus, above).
  */
 {
+        // XXX ROS supported ethernet dongles
+	USB_DEVICE_AND_INTERFACE_INFO(0x0bda, 0x8153, USB_CLASS_COMM,
+			USB_CDC_SUBCLASS_ETHERNET, USB_CDC_PROTO_NONE),
+	.driver_info = (unsigned long) &cdc_info_ether,
+}, {
+	USB_DEVICE_AND_INTERFACE_INFO(0x0525, 0xa4a2, USB_CLASS_COMM,
+			USB_CDC_SUBCLASS_ETHERNET, USB_CDC_PROTO_NONE),
+	.driver_info = (unsigned long) &cdc_info_ether,
+}, {
 	USB_INTERFACE_INFO(USB_CLASS_COMM, USB_CDC_SUBCLASS_ETHERNET,
 			USB_CDC_PROTO_NONE),
 	.driver_info = (unsigned long) &cdc_info,

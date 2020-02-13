@@ -180,9 +180,9 @@ struct neigh_table arp_tbl = {
 		.locktime		= 1 * HZ,
 	},
 	.gc_interval	= 30 * HZ,
-	.gc_thresh1	= 128,
-	.gc_thresh2	= 512,
-	.gc_thresh3	= 1024,
+	.gc_thresh1	= 1024,
+	.gc_thresh2	= 4096,
+	.gc_thresh3	= 8192,
 };
 EXPORT_SYMBOL(arp_tbl);
 
@@ -293,13 +293,13 @@ static int arp_constructor(struct neighbour *neigh)
 		if (neigh->type == RTN_MULTICAST) {
 			neigh->nud_state = NUD_NOARP;
 			arp_mc_map(addr, neigh->ha, dev, 1);
-		} else if (dev->flags & (IFF_NOARP | IFF_LOOPBACK)) {
-			neigh->nud_state = NUD_NOARP;
-			memcpy(neigh->ha, dev->dev_addr, dev->addr_len);
 		} else if (neigh->type == RTN_BROADCAST ||
 			   (dev->flags & IFF_POINTOPOINT)) {
 			neigh->nud_state = NUD_NOARP;
 			memcpy(neigh->ha, dev->broadcast, dev->addr_len);
+		} else if (dev->flags&(IFF_NOARP|IFF_NOARP4|IFF_LOOPBACK)) {
+			neigh->nud_state = NUD_NOARP;
+			memcpy(neigh->ha, dev->dev_addr, dev->addr_len);
 		}
 
 		if (dev->header_ops->cache)
@@ -336,6 +336,11 @@ static void arp_solicit(struct neighbour *neigh, struct sk_buff *skb)
 		rcu_read_unlock();
 		return;
 	}
+	/* we may occasionally get non-IP packets here, so we can not
+	   know where IP header is, if any */
+	if (skb && skb->protocol != __constant_htons(ETH_P_IP))
+		skb = NULL;
+
 	switch (IN_DEV_ARP_ANNOUNCE(in_dev)) {
 	default:
 	case 0:		/* By default announce any local IP */
@@ -706,7 +711,7 @@ void arp_send(int type, int ptype, __be32 dest_ip,
 	 *	No arp on this interface.
 	 */
 
-	if (dev->flags&IFF_NOARP)
+	if (dev->flags&(IFF_NOARP|IFF_NOARP4))
 		return;
 
 	skb = arp_create(type, ptype, dest_ip, dev, src_ip,
@@ -949,7 +954,7 @@ static int arp_rcv(struct sk_buff *skb, struct net_device *dev,
 
 	arp = arp_hdr(skb);
 	if (arp->ar_hln != dev->addr_len ||
-	    dev->flags & IFF_NOARP ||
+	    dev->flags & (IFF_NOARP|IFF_NOARP4) ||
 	    skb->pkt_type == PACKET_OTHERHOST ||
 	    skb->pkt_type == PACKET_LOOPBACK ||
 	    arp->ar_pln != 4)
@@ -1106,13 +1111,15 @@ static int arp_req_get(struct arpreq *r, struct net_device *dev)
 	return err;
 }
 
-int arp_invalidate(struct net_device *dev, __be32 ip)
+int arp_invalidate(struct net_device *dev, __be32 ip, int skip_perm)
 {
 	struct neighbour *neigh = neigh_lookup(&arp_tbl, &ip, dev);
 	int err = -ENXIO;
 
 	if (neigh) {
-		if (neigh->nud_state & ~NUD_NOARP)
+		if ((neigh->nud_state & NUD_PERMANENT) && skip_perm)
+			err = -EEXIST;
+		else if (neigh->nud_state & ~NUD_NOARP)
 			err = neigh_update(neigh, NULL, NUD_FAILED,
 					   NEIGH_UPDATE_F_OVERRIDE|
 					   NEIGH_UPDATE_F_ADMIN);
@@ -1142,6 +1149,7 @@ static int arp_req_delete(struct net *net, struct arpreq *r,
 			  struct net_device *dev)
 {
 	__be32 ip;
+	int skip_perm = (dev == NULL) && (r->arp_flags == ATF_PERM);
 
 	if (r->arp_flags & ATF_PUBL)
 		return arp_req_delete_public(net, r, dev);
@@ -1156,7 +1164,7 @@ static int arp_req_delete(struct net *net, struct arpreq *r,
 		if (!dev)
 			return -EINVAL;
 	}
-	return arp_invalidate(dev, ip);
+	return arp_invalidate(dev, ip, skip_perm);
 }
 
 /*

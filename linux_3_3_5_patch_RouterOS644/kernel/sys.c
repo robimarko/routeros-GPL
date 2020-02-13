@@ -970,8 +970,12 @@ SYSCALL_DEFINE1(times, struct tms __user *, tbuf)
 		if (copy_to_user(tbuf, &tmp, sizeof(struct tms)))
 			return -EFAULT;
 	}
+#if HZ == USER_HZ
+	return jiffies;
+#else
 	force_successful_syscall_return();
 	return (long) jiffies_64_to_clock_t(get_jiffies_64());
+#endif
 }
 
 /*

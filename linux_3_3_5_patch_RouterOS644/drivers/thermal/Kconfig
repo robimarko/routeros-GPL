@@ -18,3 +18,11 @@ config THERMAL_HWMON
 	depends on THERMAL
 	depends on HWMON=y || HWMON=THERMAL
 	default y
+
+config AL_THERMAL
+	bool "Annapurna Labs thermal sensor driver"
+	depends on ARCH_ALPINE
+	depends on OF
+	help
+	  Enable this to plug the Annapurna Labs thermal sensor driver into the
+	  Linux thermal framework

@@ -249,10 +249,11 @@ again:
 	dst = child;
 	if (dst) {
 		int nohash = dst->flags & DST_NOHASH;
+		int nocache = dst->flags & DST_NOCACHE;
 
 		if (atomic_dec_and_test(&dst->__refcnt)) {
 			/* We were real parent of this dst, so kill child. */
-			if (nohash)
+			if (nohash || nocache)
 				goto again;
 		} else {
 			/* Child is still referenced, return it for freeing. */

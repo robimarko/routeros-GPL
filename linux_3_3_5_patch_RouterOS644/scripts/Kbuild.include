@@ -220,6 +220,7 @@ any-prereq = $(filter-out $(PHONY),$?) $(filter-out $(PHONY) $(wildcard $^),$^)
 if_changed = $(if $(strip $(any-prereq) $(arg-check)),                       \
 	@set -e;                                                             \
 	$(echo-cmd) $(cmd_$(1));                                             \
+	rm -f $(dot-target).cmd;					     \
 	echo 'cmd_$@ := $(make-cmd)' > $(dot-target).cmd)
 
 # Execute the command and also postprocess generated .d dependencies file.

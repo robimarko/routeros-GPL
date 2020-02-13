@@ -12,6 +12,7 @@
  *   more details.
  */
 
+#include <linux/module.h>
 #include <linux/stddef.h>
 #include <linux/reboot.h>
 #include <linux/smp.h>
@@ -23,6 +24,8 @@
 #ifndef CONFIG_SMP
 #define smp_send_stop()
 #endif
+
+EXPORT_SYMBOL(hv_halt);
 
 void machine_halt(void)
 {

@@ -957,7 +957,7 @@ static int __init ppc460ex_pciex_init_port_hw(struct ppc4xx_pciex_port *port)
 
 	if (port->index == 0) {
 		val |= LNKW_X1 << 12;
-		utlset1 = 0x20000000;
+		utlset1 = 0x00000000;
 	} else {
 		val |= LNKW_X4 << 12;
 		utlset1 = 0x20101101;

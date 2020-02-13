@@ -65,6 +65,7 @@
 #define SIOCDIFADDR	0x8936		/* delete PA address		*/
 #define	SIOCSIFHWBROADCAST	0x8937	/* set hardware broadcast addr	*/
 #define SIOCGIFCOUNT	0x8938		/* get number of devices */
+#define SIOCSPROXYARP	0x8939		/* set device proxy-arp setting */
 
 #define SIOCGIFBR	0x8940		/* Bridging support		*/
 #define SIOCSIFBR	0x8941		/* Set bridging options 	*/
@@ -84,6 +85,8 @@
 #define SIOCWANDEV	0x894A		/* get/set netdev parameters	*/
 
 #define SIOCOUTQNSD	0x894B		/* output queue size (not sent only) */
+
+#define SIOCSIFL2MTU	0x894B		/* set net_device l2mtu		*/
 
 /* ARP cache control calls. */
 		    /*  0x8950 - 0x8952  * obsolete calls, don't re-use */
@@ -117,6 +120,9 @@
 #define SIOCBONDSLAVEINFOQUERY 0x8993   /* rtn info about slave state   */
 #define SIOCBONDINFOQUERY      0x8994	/* rtn info about bond state    */
 #define SIOCBONDCHANGEACTIVE   0x8995   /* update to a new active slave */
+			
+#define SIOCSDEVID	0x899e		/* set device id */
+#define SIOCGDEVID	0x899f		/* get device id */
 			
 /* bridge calls */
 #define SIOCBRADDBR     0x89a0		/* create new bridge device     */

@@ -572,7 +572,7 @@ static int hvc_chars_in_buffer(struct tty_struct *tty)
  * there has been no input for some time.
  */
 #define MIN_TIMEOUT		(10)
-#define MAX_TIMEOUT		(2000)
+#define MAX_TIMEOUT		(200)
 static u32 timeout = MIN_TIMEOUT;
 
 #define HVC_POLL_READ	0x00000001

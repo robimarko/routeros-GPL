@@ -249,7 +249,7 @@ ENTRY(feroceon_flush_kern_dcache_area)
 1:	mcr	p15, 0, r0, c7, c14, 1		@ clean+invalidate D entry
 	add	r0, r0, #CACHE_DLINESIZE
 	cmp	r0, r1
-	blo	1b
+	blo	1
 	mov	r0, #0
 	mcr	p15, 0, r0, c7, c5, 0		@ invalidate I cache
 	mcr	p15, 0, r0, c7, c10, 4		@ drain WB

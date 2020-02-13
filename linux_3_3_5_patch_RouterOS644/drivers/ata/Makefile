@@ -91,8 +91,11 @@ obj-$(CONFIG_PATA_OF_PLATFORM)	+= pata_of_platform.o
 obj-$(CONFIG_PATA_RB532)	+= pata_rb532_cf.o
 obj-$(CONFIG_PATA_RZ1000)	+= pata_rz1000.o
 obj-$(CONFIG_PATA_SAMSUNG_CF)	+= pata_samsung_cf.o
-
 obj-$(CONFIG_PATA_PXA)		+= pata_pxa.o
+
+obj-$(CONFIG_PATA_RB500)	+= pata_rb500.o
+obj-$(CONFIG_PATA_RB100)	+= pata_rb100.o
+obj-$(CONFIG_PATA_RBPPC)	+= pata_rb_ppc.o
 
 # Should be last but two libata driver
 obj-$(CONFIG_PATA_ACPI)		+= pata_acpi.o

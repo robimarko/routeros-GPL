@@ -23,6 +23,9 @@ obj-$(CONFIG_ARM_AMBA)		+= amba/
 # really early.
 obj-$(CONFIG_DMA_ENGINE)	+= dma/
 
+# SOC specific infrastructure drivers.
+obj-y				+= soc/
+
 obj-$(CONFIG_VIRTIO)		+= virtio/
 obj-$(CONFIG_XEN)		+= xen/
 

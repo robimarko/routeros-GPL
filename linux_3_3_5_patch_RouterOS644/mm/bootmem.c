@@ -199,7 +199,6 @@ static unsigned long __init free_all_bootmem_core(bootmem_data_t *bdata)
 
 			__free_pages_bootmem(pfn_to_page(start), order);
 			count += BITS_PER_LONG;
-			start += BITS_PER_LONG;
 		} else {
 			unsigned long off = 0;
 
@@ -212,8 +211,8 @@ static unsigned long __init free_all_bootmem_core(bootmem_data_t *bdata)
 				vec >>= 1;
 				off++;
 			}
-			start = ALIGN(start + 1, BITS_PER_LONG);
 		}
+		start += BITS_PER_LONG;
 	}
 
 	page = virt_to_page(bdata->node_bootmem_map);

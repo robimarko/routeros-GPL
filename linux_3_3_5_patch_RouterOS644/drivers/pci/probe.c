@@ -1488,11 +1488,19 @@ unsigned int __devinit pci_scan_child_bus(struct pci_bus *bus)
 {
 	unsigned int devfn, pass, max = bus->secondary;
 	struct pci_dev *dev;
+	unsigned int devfn_limit = 0x100;
 
 	dev_dbg(&bus->dev, "scanning bus\n");
 
+#ifdef CONFIG_CPU_LITTLE_ENDIAN
+#ifdef CONFIG_MIPS_MIKROTIK
+	/* PCI fix for RB532 */
+	if (bus->number == 0) devfn_limit = 22 * 8;
+#endif
+#endif
+
 	/* Go find them, Rover! */
-	for (devfn = 0; devfn < 0x100; devfn += 8)
+	for (devfn = 0; devfn < devfn_limit; devfn += 8)
 		pci_scan_slot(bus, devfn);
 
 	/* Reserve buses for SR-IOV capability. */

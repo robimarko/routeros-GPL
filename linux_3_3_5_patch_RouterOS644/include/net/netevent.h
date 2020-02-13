@@ -21,6 +21,11 @@ struct netevent_redirect {
 enum netevent_notif_type {
 	NETEVENT_NEIGH_UPDATE = 1, /* arg is struct neighbour ptr */
 	NETEVENT_REDIRECT,	   /* arg is struct netevent_redirect ptr */
+#ifdef CONFIG_TILE_NETLIB
+	NETEVENT_NEIGH_RELEASE, /* arg is struct neighbour release ptr */
+	NETEVENT_FIB_INSERT,    /* arg is struct FIB insert ptr */
+	NETEVENT_FIB_DELETE,    /* arg is struct FIB delete ptr */
+#endif
 };
 
 extern int register_netevent_notifier(struct notifier_block *nb);

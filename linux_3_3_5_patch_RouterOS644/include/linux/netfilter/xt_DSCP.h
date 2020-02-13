@@ -13,9 +13,13 @@
 #include <linux/netfilter/xt_dscp.h>
 #include <linux/types.h>
 
+#define XT_DSCP_FROM_PRIORITY 255
+#define XT_DSCP_HIGH_3_BITS_FROM_PRIORITY 254
+
 /* target info */
 struct xt_DSCP_info {
 	__u8 dscp;
+	__u8 passthrough;
 };
 
 struct xt_tos_target_info {

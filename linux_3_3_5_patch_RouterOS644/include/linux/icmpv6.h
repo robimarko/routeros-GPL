@@ -76,7 +76,7 @@ struct icmp6hdr {
 #define icmp6_addrconf_other	icmp6_dataun.u_nd_ra.other
 #define icmp6_rt_lifetime	icmp6_dataun.u_nd_ra.rt_lifetime
 #define icmp6_router_pref	icmp6_dataun.u_nd_ra.router_pref
-};
+} __attribute__((packed));
 
 #ifdef __KERNEL__
 #include <linux/skbuff.h>

@@ -229,7 +229,8 @@ static int esp_output(struct xfrm_state *x, struct sk_buff *skb)
 			break;
 		case UDP_ENCAP_ESPINUDP_NON_IKE:
 			udpdata32 = (__be32 *)(uh + 1);
-			udpdata32[0] = udpdata32[1] = 0;
+			put_unaligned(0, &udpdata32[0]);
+			put_unaligned(0, &udpdata32[1]);
 			esph = (struct ip_esp_hdr *)(udpdata32 + 2);
 			break;
 		}

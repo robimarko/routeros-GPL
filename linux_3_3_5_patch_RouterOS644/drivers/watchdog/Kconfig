@@ -1170,6 +1170,16 @@ config WATCHDOG_RIO
 	  machines.  The watchdog timeout period is normally one minute but
 	  can be changed with a boot-time parameter.
 
+# TILE Architecture
+
+config WATCHDOG_TILE
+	tristate "TILE watchdog support"
+	depends on TILE
+	help
+	  Say Y here to enable the TILE paravirtualized watchdog driver.
+	  A hypervisor "watchdog" device must be configured.  (The
+	  initial implementation is an I2C-based PCF8563 chip.)
+
 # XTENSA Architecture
 
 # Xen Architecture

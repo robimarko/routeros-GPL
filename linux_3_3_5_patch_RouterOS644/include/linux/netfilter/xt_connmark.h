@@ -21,6 +21,7 @@ enum {
 struct xt_connmark_tginfo1 {
 	__u32 ctmark, ctmask, nfmask;
 	__u8 mode;
+        __u8 passthrough;
 };
 
 struct xt_connmark_mtinfo1 {

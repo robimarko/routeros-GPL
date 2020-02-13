@@ -80,7 +80,7 @@ struct icmphdr {
 		__be16	mtu;
 	} frag;
   } un;
-};
+} __attribute__((packed));
 
 #ifdef __KERNEL__
 #include <linux/skbuff.h>
@@ -99,7 +99,7 @@ static inline struct icmphdr *icmp_hdr(const struct sk_buff *skb)
 
 struct icmp_filter {
 	__u32		data;
-};
+} __attribute__((packed));
 
 
 #endif	/* _LINUX_ICMP_H */

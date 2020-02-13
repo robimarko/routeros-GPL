@@ -152,6 +152,119 @@ EXPORT_SYMBOL_GPL(ehci_cf_port_reset_rwsem);
 #define HUB_DEBOUNCE_STEP	  25
 #define HUB_DEBOUNCE_STABLE	 100
 
+#ifdef CONFIG_MIPS_MIKROTIK
+#define SERIAL_MODE			1
+#define PARALLEL_MODE			0
+
+#define ATH_USB_SET_SERIAL_MODE		(1 << 29)
+#define ATH_USB_STS_SOF			(1 << 7)
+#define ATH_RESET_USB_PHY		(1 << 4)
+
+#include "../host/atheros.h"
+
+static inline void ath_usb_set_phy_type(int mode, u32 ath_port_reg) {
+    if(mode == SERIAL_MODE) {
+	/* Set PHY type in serial mode*/
+	ath_mod_reg(ath_port_reg, ATH_USB_SET_SERIAL_MODE, 0);
+    }
+    else {
+	/* Set PHY type in parallel mode*/
+	ath_mod_reg(ath_port_reg, 0, ATH_USB_SET_SERIAL_MODE);
+    }
+}
+
+static inline void ath_usb_dig_phy_rst(u32 ath_usb_sts_reg, u32 ath_reset_reg) {
+    int count = 0;
+    /* Clear prev SOF status */
+    ath_mod_reg(ath_usb_sts_reg, ATH_USB_STS_SOF, 0);
+    udelay(5);
+    
+    /* Wait for one SOF(SOF sent every 125 usec) to sent out before Reset. */
+    while (!(ath_reg_rd(ath_usb_sts_reg) & ATH_USB_STS_SOF)) {
+	if (count && (count % 5000 == 0)) {
+	    printk("%s[%d] count %d USBSTS = 0x%08x\n", 
+		   __func__, __LINE__, count,
+		   ath_reg_rd(ath_usb_sts_reg));
+	}
+	count++;
+    }
+    udelay(5);
+    
+    /* Reset USB PHY */
+    ath_mod_reg(ath_reset_reg, ATH_RESET_USB_PHY, 0);
+    ath_mod_reg(ath_reset_reg, 0, ATH_RESET_USB_PHY);
+    udelay(250);
+}
+
+static int support_dev_class[] = {
+    USB_CLASS_MASS_STORAGE,
+    USB_CLASS_HUB,
+    -1
+};
+
+static void print_warning_war(struct usb_device *udev, int class) {
+    dev_warn(&udev->dev, "Unsupported USB device bInterfaceClass %d\n", class);
+}
+
+static void atheros_warning_war(struct usb_device *udev) {
+    int ncfg, nintf;
+    unsigned int cfgno = 0;
+    int i, j, ix, support_dev_flag = 0;
+    struct usb_interface_cache *intfc;
+    struct usb_host_config *config;
+    
+    ncfg = udev->descriptor.bNumConfigurations;
+    for (cfgno = 0; cfgno < ncfg; cfgno++) {
+	config = &udev->config[cfgno];
+	nintf = config->desc.bNumInterfaces;
+	for (i = 0; i < nintf; ++i) {
+	    intfc = config->intf_cache[i];
+	    for (j = 0; j < intfc->num_altsetting; ++j) {
+		int class = intfc->altsetting[j].desc.bInterfaceClass;
+		support_dev_flag = 0;
+		for (ix = 0; support_dev_class[ix] != -1; ix++) {
+		    if (class == support_dev_class[ix]) {
+			support_dev_flag = 1;
+			break;
+		    }
+		}
+		if (support_dev_flag == 0) {
+		    print_warning_war(udev, class);
+		}
+	    }
+	}
+    }
+}
+
+static void __iomem *ath_regs[6] = { 
+    NULL, NULL, NULL, NULL, NULL, NULL
+};
+static unsigned ath_addrs[6] = { 
+    0x1b000144, 0x1b400144, 0x1806001c, 0x180600c4, 0x1b000184, 0x1b400184
+};
+
+#define ATH_USB_STS			((unsigned) ath_regs[0]) // 0x1b000144
+#define ATH_USB2_STS			((unsigned) ath_regs[1]) // 0x1b400144
+#define RST_RESET_ADDRESS		((unsigned) ath_regs[2]) // 0x1806001c
+#define RST_RESET2_ADDRESS		((unsigned) ath_regs[3]) // 0x180600c4
+#define ATH_USB_PORTSCX			((unsigned) ath_regs[4]) // 0x1b000184
+#define ATH_USB2_PORTSCX		((unsigned) ath_regs[5]) // 0x1b400184
+
+static void atheros_enum_failure_fix(struct usb_device *udev) {
+    printk("atheros_enum_failure_fix\n");
+    if (is_new_wasp()) {
+	ath_usb_dig_phy_rst(ATH_USB_STS, RST_RESET_ADDRESS);
+    }
+    if (is_scorpion()) {
+	if (!(udev->bus->controller->driver->mod_name)) {
+	    ath_usb_dig_phy_rst(ATH_USB_STS, RST_RESET_ADDRESS);
+	}
+	else {
+	    ath_usb_dig_phy_rst(ATH_USB2_STS, RST_RESET2_ADDRESS);
+	}
+    }
+}
+#endif
 
 static int usb_reset_and_verify_device(struct usb_device *udev);
 
@@ -1893,6 +2006,15 @@ int usb_new_device(struct usb_device *udev)
 	udev->dev.devt = MKDEV(USB_DEVICE_MAJOR,
 			(((udev->bus->busnum-1) * 128) + (udev->devnum-1)));
 
+#ifdef CONFIG_MIPS_MIKROTIK
+	if (is_wasp()
+	    || is_scorpion()
+	    || is_honeybee()
+	    || is_hornet()) {
+	    atheros_warning_war(udev);
+	}
+#endif
+
 	/* Tell the world! */
 	announce_device(udev);
 
@@ -2119,7 +2241,14 @@ static int hub_port_wait_reset(struct usb_hub *hub, int port1,
 				else if (hub_is_superspeed(hub->hdev))
 					udev->speed = USB_SPEED_SUPER;
 				else if (portstatus & USB_PORT_STAT_HIGH_SPEED)
+				{
 					udev->speed = USB_SPEED_HIGH;
+#ifdef CONFIG_MIPS_MIKROTIK
+					if (!(hub->hdev->parent)) {
+					    atheros_enum_failure_fix(udev);
+					}
+#endif
+				}
 				else if (portstatus & USB_PORT_STAT_LOW_SPEED)
 					udev->speed = USB_SPEED_LOW;
 				else
@@ -2923,11 +3052,45 @@ hub_port_init (struct usb_hub *hub, struct usb_device *udev, int port1,
 	else
 		speed = usb_speed_string(udev->speed);
 
+#ifdef CONFIG_MIPS_MIKROTIK
+	if (is_scorpion() || is_honeybee()) {
+	    u32 portscx_add;
+	    if(!(udev->bus->controller->driver->mod_name)) {
+		portscx_add = ATH_USB_PORTSCX;		
+	    } 
+	    else {
+                portscx_add = ATH_USB2_PORTSCX;
+	    }
+	    if ((hdev->bus->root_hub->children[0] 
+		 && hdev->bus->root_hub->children[0]->speed == USB_SPEED_FULL)
+		|| (hdev->level == 0 && udev->speed == USB_SPEED_LOW)) {
+		ath_usb_set_phy_type(SERIAL_MODE, portscx_add);
+		retval = hub_port_reset(hub, port1, udev, delay, false);
+		if (retval < 0) goto fail;
+	    }
+	    else {
+		ath_usb_set_phy_type(PARALLEL_MODE, portscx_add);
+	    }	    
+	}
+#endif
+
 	if (udev->speed != USB_SPEED_SUPER)
 		dev_info(&udev->dev,
 				"%s %s USB device number %d using %s\n",
 				(udev->config) ? "reset" : "new", speed,
 				devnum, udev->bus->controller->driver->name);
+
+#ifdef CONFIG_MIPS_MIKROTIK
+	if (is_new_wasp()) {
+	    if (!(hub->hdev->parent) 
+		&& ((udev->speed == USB_SPEED_LOW)
+		    || (udev->speed == USB_SPEED_FULL))) {
+		ath_mod_reg(RST_RESET_ADDRESS, ATH_RESET_USB_PHY, 0);
+		udelay(1000);
+		ath_mod_reg(RST_RESET_ADDRESS, 0, ATH_RESET_USB_PHY);
+	    }
+	}
+#endif
 
 	/* Set up TT records, if needed  */
 	if (hdev->tt) {
@@ -3745,6 +3908,10 @@ static struct usb_driver hub_driver = {
 
 int usb_hub_init(void)
 {
+#ifdef CONFIG_MIPS_MIKROTIK
+	ath_remap(ath_regs, ath_addrs, ARRAY_SIZE(ath_addrs));
+#endif
+
 	if (usb_register(&hub_driver) < 0) {
 		printk(KERN_ERR "%s: can't register hub driver\n",
 			usbcore_name);
@@ -3774,6 +3941,10 @@ void usb_hub_cleanup(void)
 	 * individual hub resources. -greg
 	 */
 	usb_deregister(&hub_driver);
+
+#ifdef CONFIG_MIPS_MIKROTIK
+	ath_unmap(ath_regs, ARRAY_SIZE(ath_addrs));
+#endif
 } /* usb_hub_cleanup() */
 
 static int descriptors_changed(struct usb_device *udev,

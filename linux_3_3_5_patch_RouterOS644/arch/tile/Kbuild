@@ -1,3 +1,5 @@
 
 obj-y += kernel/
 obj-y += mm/
+obj-y += feedback/
+obj-y += rb/

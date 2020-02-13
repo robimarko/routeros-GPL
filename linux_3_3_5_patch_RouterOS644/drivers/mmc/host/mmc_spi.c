@@ -1343,6 +1343,10 @@ static int mmc_spi_probe(struct spi_device *spi)
 
 	status = spi_setup(spi);
 	if (status < 0) {
+		spi->mode = SPI_MODE_3;
+		status = spi_setup(spi);
+	}
+	if (status < 0) {
 		dev_dbg(&spi->dev, "needs SPI mode %02x, %d KHz; %d\n",
 				spi->mode, spi->max_speed_hz / 1000,
 				status);

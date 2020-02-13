@@ -87,6 +87,15 @@ config MPIC_WEIRD
 	bool
 	default n
 
+config MT_VIC
+	bool
+
+config RB_AUX
+	bool
+
+config RB_PCI
+	bool
+
 config PPC_I8259
 	bool
 	default n
@@ -173,6 +182,9 @@ config PPC_INDIRECT_MMIO
 	select PPC_INDIRECT_IO
 
 config PPC_IO_WORKAROUNDS
+	bool
+
+config RB_IOMAP
 	bool
 
 source "drivers/cpufreq/Kconfig"

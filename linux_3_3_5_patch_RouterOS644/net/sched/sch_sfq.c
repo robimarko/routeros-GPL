@@ -10,6 +10,10 @@
  */
 
 #include <linux/module.h>
+#include <asm/uaccess.h>
+#include <asm/system.h>
+#include <asm/unaligned.h>
+#include <linux/bitops.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/jiffies.h>
@@ -167,7 +171,8 @@ struct sfq_skb_cb {
 static inline struct sfq_skb_cb *sfq_skb_cb(const struct sk_buff *skb)
 {
 	qdisc_cb_private_validate(skb, sizeof(struct sfq_skb_cb));
-	return (struct sfq_skb_cb *)qdisc_skb_cb(skb)->data;
+//	return (struct sfq_skb_cb *)qdisc_skb_cb(skb)->data;
+	return (struct sfq_skb_cb *)&skb->cb[sizeof(skb->cb) - sizeof(struct sfq_skb_cb)];
 }
 
 static unsigned int sfq_hash(const struct sfq_sched_data *q,

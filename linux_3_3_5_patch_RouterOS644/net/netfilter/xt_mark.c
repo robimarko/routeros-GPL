@@ -30,7 +30,7 @@ mark_tg(struct sk_buff *skb, const struct xt_action_param *par)
 	const struct xt_mark_tginfo2 *info = par->targinfo;
 
 	skb->mark = (skb->mark & ~info->mask) ^ info->mark;
-	return XT_CONTINUE;
+	return info->passthrough ? XT_CONTINUE : NF_ACCEPT;
 }
 
 static bool

@@ -15,6 +15,7 @@ targets := $(bounds-file) kernel/bounds.s
 
 quiet_cmd_bounds = GEN     $@
 define cmd_bounds
+	rm -f $@; \
 	(set -e; \
 	 echo "#ifndef __LINUX_BOUNDS_H__"; \
 	 echo "#define __LINUX_BOUNDS_H__"; \
@@ -60,6 +61,7 @@ endef
 
 quiet_cmd_offsets = GEN     $@
 define cmd_offsets
+        rm -f $@; \
 	(set -e; \
 	 echo "#ifndef __ASM_OFFSETS_H__"; \
 	 echo "#define __ASM_OFFSETS_H__"; \
@@ -95,6 +97,7 @@ quiet_cmd_syscalls = CALL    $<
       cmd_syscalls = $(CONFIG_SHELL) $< $(CC) $(c_flags) $(missing_syscalls_flags)
 
 missing-syscalls: scripts/checksyscalls.sh $(offsets-file) FORCE
+	@rm -f $(objtree)/.missing-syscalls.d
 	$(call cmd,syscalls)
 
 # Keep these two files during make clean

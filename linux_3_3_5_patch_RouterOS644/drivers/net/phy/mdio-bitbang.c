@@ -49,9 +49,13 @@ static void mdiobb_send_bit(struct mdiobb_ctrl *ctrl, int val)
 	const struct mdiobb_ops *ops = ctrl->ops;
 
 	ops->set_mdio_data(ctrl, val);
+#ifndef __arm__	
 	ndelay(MDIO_DELAY);
+#endif	
 	ops->set_mdc(ctrl, 1);
+#ifndef __arm__	
 	ndelay(MDIO_DELAY);
+#endif	
 	ops->set_mdc(ctrl, 0);
 }
 
@@ -60,9 +64,13 @@ static int mdiobb_get_bit(struct mdiobb_ctrl *ctrl)
 {
 	const struct mdiobb_ops *ops = ctrl->ops;
 
+#ifndef __arm__	
 	ndelay(MDIO_DELAY);
+#endif	
 	ops->set_mdc(ctrl, 1);
+#ifndef __arm__	
 	ndelay(MDIO_READ_DELAY);
+#endif	
 	ops->set_mdc(ctrl, 0);
 
 	return ops->get_mdio_data(ctrl);

@@ -257,9 +257,6 @@ static int fw_change(struct tcf_proto *tp, unsigned long base,
 		return fw_change_attrs(tp, f, tb, tca, base);
 	}
 
-	if (!handle)
-		return -EINVAL;
-
 	if (head == NULL) {
 		u32 mask = 0xFFFFFFFF;
 		if (tb[TCA_FW_MASK])

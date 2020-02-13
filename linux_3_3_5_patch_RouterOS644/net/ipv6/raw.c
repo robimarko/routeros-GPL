@@ -629,7 +629,7 @@ static int rawv6_send_hdrinc(struct sock *sk, void *from, int length,
 	skb_reserve(skb, hlen);
 
 	skb->priority = sk->sk_priority;
-	skb->mark = sk->sk_mark;
+	skb->prmark = sk->sk_mark;
 	skb_dst_set(skb, &rt->dst);
 	*dstp = NULL;
 

@@ -25,6 +25,377 @@
 #ifndef _HYPERV_H
 #define _HYPERV_H
 
+#include <linux/types.h>
+#include <linux/uuid.h>
+
+/*
+ * Framework version for util services.
+ */
+#define UTIL_FW_MINOR  0
+
+#define UTIL_WS2K8_FW_MAJOR  1
+#define UTIL_WS2K8_FW_VERSION     (UTIL_WS2K8_FW_MAJOR << 16 | UTIL_FW_MINOR)
+
+#define UTIL_FW_MAJOR  3
+#define UTIL_FW_VERSION     (UTIL_FW_MAJOR << 16 | UTIL_FW_MINOR)
+
+
+/*
+ * Implementation of host controlled snapshot of the guest.
+ */
+
+#define VSS_OP_REGISTER 128
+
+/*
+  Daemon code with full handshake support.
+ */
+#define VSS_OP_REGISTER1 129
+
+enum hv_vss_op {
+	VSS_OP_CREATE = 0,
+	VSS_OP_DELETE,
+	VSS_OP_HOT_BACKUP,
+	VSS_OP_GET_DM_INFO,
+	VSS_OP_BU_COMPLETE,
+	/*
+	 * Following operations are only supported with IC version >= 5.0
+	 */
+	VSS_OP_FREEZE, /* Freeze the file systems in the VM */
+	VSS_OP_THAW, /* Unfreeze the file systems */
+	VSS_OP_AUTO_RECOVER,
+	VSS_OP_COUNT /* Number of operations, must be last */
+};
+
+
+/*
+ * Header for all VSS messages.
+ */
+struct hv_vss_hdr {
+	__u8 operation;
+	__u8 reserved[7];
+} __attribute__((packed));
+
+
+/*
+ * Flag values for the hv_vss_check_feature. Linux supports only
+ * one value.
+ */
+#define VSS_HBU_NO_AUTO_RECOVERY	0x00000005
+
+struct hv_vss_check_feature {
+	__u32 flags;
+} __attribute__((packed));
+
+struct hv_vss_check_dm_info {
+	__u32 flags;
+} __attribute__((packed));
+
+struct hv_vss_msg {
+	union {
+		struct hv_vss_hdr vss_hdr;
+		int error;
+	};
+	union {
+		struct hv_vss_check_feature vss_cf;
+		struct hv_vss_check_dm_info dm_info;
+	};
+} __attribute__((packed));
+
+/*
+ * Implementation of a host to guest copy facility.
+ */
+
+#define FCOPY_VERSION_0 0
+#define FCOPY_VERSION_1 1
+#define FCOPY_CURRENT_VERSION FCOPY_VERSION_1
+#define W_MAX_PATH 260
+
+enum hv_fcopy_op {
+	START_FILE_COPY = 0,
+	WRITE_TO_FILE,
+	COMPLETE_FCOPY,
+	CANCEL_FCOPY,
+};
+
+struct hv_fcopy_hdr {
+	__u32 operation;
+	uuid_le service_id0; /* currently unused */
+	uuid_le service_id1; /* currently unused */
+} __attribute__((packed));
+
+#define OVER_WRITE	0x1
+#define CREATE_PATH	0x2
+
+struct hv_start_fcopy {
+	struct hv_fcopy_hdr hdr;
+	__u16 file_name[W_MAX_PATH];
+	__u16 path_name[W_MAX_PATH];
+	__u32 copy_flags;
+	__u64 file_size;
+} __attribute__((packed));
+
+/*
+ * The file is chunked into fragments.
+ */
+#define DATA_FRAGMENT	(6 * 1024)
+
+struct hv_do_fcopy {
+	struct hv_fcopy_hdr hdr;
+	__u32   pad;
+	__u64	offset;
+	__u32	size;
+	__u8	data[DATA_FRAGMENT];
+} __attribute__((packed));
+
+/*
+ * An implementation of HyperV key value pair (KVP) functionality for Linux.
+ *
+ *
+ * Copyright (C) 2010, Novell, Inc.
+ * Author : K. Y. Srinivasan <ksrinivasan@novell.com>
+ *
+ */
+
+/*
+ * Maximum value size - used for both key names and value data, and includes
+ * any applicable NULL terminators.
+ *
+ * Note:  This limit is somewhat arbitrary, but falls easily within what is
+ * supported for all native guests (back to Win 2000) and what is reasonable
+ * for the IC KVP exchange functionality.  Note that Windows Me/98/95 are
+ * limited to 255 character key names.
+ *
+ * MSDN recommends not storing data values larger than 2048 bytes in the
+ * registry.
+ *
+ * Note:  This value is used in defining the KVP exchange message - this value
+ * cannot be modified without affecting the message size and compatibility.
+ */
+
+/*
+ * bytes, including any null terminators
+ */
+#define HV_KVP_EXCHANGE_MAX_VALUE_SIZE          (2048)
+
+
+/*
+ * Maximum key size - the registry limit for the length of an entry name
+ * is 256 characters, including the null terminator
+ */
+
+#define HV_KVP_EXCHANGE_MAX_KEY_SIZE            (512)
+
+/*
+ * In Linux, we implement the KVP functionality in two components:
+ * 1) The kernel component which is packaged as part of the hv_utils driver
+ * is responsible for communicating with the host and responsible for
+ * implementing the host/guest protocol. 2) A user level daemon that is
+ * responsible for data gathering.
+ *
+ * Host/Guest Protocol: The host iterates over an index and expects the guest
+ * to assign a key name to the index and also return the value corresponding to
+ * the key. The host will have atmost one KVP transaction outstanding at any
+ * given point in time. The host side iteration stops when the guest returns
+ * an error. Microsoft has specified the following mapping of key names to
+ * host specified index:
+ *
+ *	Index		Key Name
+ *	0		FullyQualifiedDomainName
+ *	1		IntegrationServicesVersion
+ *	2		NetworkAddressIPv4
+ *	3		NetworkAddressIPv6
+ *	4		OSBuildNumber
+ *	5		OSName
+ *	6		OSMajorVersion
+ *	7		OSMinorVersion
+ *	8		OSVersion
+ *	9		ProcessorArchitecture
+ *
+ * The Windows host expects the Key Name and Key Value to be encoded in utf16.
+ *
+ * Guest Kernel/KVP Daemon Protocol: As noted earlier, we implement all of the
+ * data gathering functionality in a user mode daemon. The user level daemon
+ * is also responsible for binding the key name to the index as well. The
+ * kernel and user-level daemon communicate using a connector channel.
+ *
+ * The user mode component first registers with the
+ * the kernel component. Subsequently, the kernel component requests, data
+ * for the specified keys. In response to this message the user mode component
+ * fills in the value corresponding to the specified key. We overload the
+ * sequence field in the cn_msg header to define our KVP message types.
+ *
+ *
+ * The kernel component simply acts as a conduit for communication between the
+ * Windows host and the user-level daemon. The kernel component passes up the
+ * index received from the Host to the user-level daemon. If the index is
+ * valid (supported), the corresponding key as well as its
+ * value (both are strings) is returned. If the index is invalid
+ * (not supported), a NULL key string is returned.
+ */
+
+
+/*
+ * Registry value types.
+ */
+
+#define REG_SZ 1
+#define REG_U32 4
+#define REG_U64 8
+
+/*
+ * As we look at expanding the KVP functionality to include
+ * IP injection functionality, we need to maintain binary
+ * compatibility with older daemons.
+ *
+ * The KVP opcodes are defined by the host and it was unfortunate
+ * that I chose to treat the registration operation as part of the
+ * KVP operations defined by the host.
+ * Here is the level of compatibility
+ * (between the user level daemon and the kernel KVP driver) that we
+ * will implement:
+ *
+ * An older daemon will always be supported on a newer driver.
+ * A given user level daemon will require a minimal version of the
+ * kernel driver.
+ * If we cannot handle the version differences, we will fail gracefully
+ * (this can happen when we have a user level daemon that is more
+ * advanced than the KVP driver.
+ *
+ * We will use values used in this handshake for determining if we have
+ * workable user level daemon and the kernel driver. We begin by taking the
+ * registration opcode out of the KVP opcode namespace. We will however,
+ * maintain compatibility with the existing user-level daemon code.
+ */
+
+/*
+ * Daemon code not supporting IP injection (legacy daemon).
+ */
+
+#define KVP_OP_REGISTER	4
+
+/*
+ * Daemon code supporting IP injection.
+ * The KVP opcode field is used to communicate the
+ * registration information; so define a namespace that
+ * will be distinct from the host defined KVP opcode.
+ */
+
+#define KVP_OP_REGISTER1 100
+
+enum hv_kvp_exchg_op {
+	KVP_OP_GET = 0,
+	KVP_OP_SET,
+	KVP_OP_DELETE,
+	KVP_OP_ENUMERATE,
+	KVP_OP_GET_IP_INFO,
+	KVP_OP_SET_IP_INFO,
+	KVP_OP_COUNT /* Number of operations, must be last. */
+};
+
+enum hv_kvp_exchg_pool {
+	KVP_POOL_EXTERNAL = 0,
+	KVP_POOL_GUEST,
+	KVP_POOL_AUTO,
+	KVP_POOL_AUTO_EXTERNAL,
+	KVP_POOL_AUTO_INTERNAL,
+	KVP_POOL_COUNT /* Number of pools, must be last. */
+};
+
+/*
+ * Some Hyper-V status codes.
+ */
+
+#define HV_S_OK				0x00000000
+#define HV_E_FAIL			0x80004005
+#define HV_S_CONT			0x80070103
+#define HV_ERROR_NOT_SUPPORTED		0x80070032
+#define HV_ERROR_MACHINE_LOCKED		0x800704F7
+#define HV_ERROR_DEVICE_NOT_CONNECTED	0x8007048F
+#define HV_INVALIDARG			0x80070057
+#define HV_GUID_NOTFOUND		0x80041002
+
+#define ADDR_FAMILY_NONE	0x00
+#define ADDR_FAMILY_IPV4	0x01
+#define ADDR_FAMILY_IPV6	0x02
+
+#define MAX_ADAPTER_ID_SIZE	128
+#define MAX_IP_ADDR_SIZE	1024
+#define MAX_GATEWAY_SIZE	512
+
+
+struct hv_kvp_ipaddr_value {
+	__u16	adapter_id[MAX_ADAPTER_ID_SIZE];
+	__u8	addr_family;
+	__u8	dhcp_enabled;
+	__u16	ip_addr[MAX_IP_ADDR_SIZE];
+	__u16	sub_net[MAX_IP_ADDR_SIZE];
+	__u16	gate_way[MAX_GATEWAY_SIZE];
+	__u16	dns_addr[MAX_IP_ADDR_SIZE];
+} __attribute__((packed));
+
+
+struct hv_kvp_hdr {
+	__u8 operation;
+	__u8 pool;
+	__u16 pad;
+} __attribute__((packed));
+
+struct hv_kvp_exchg_msg_value {
+	__u32 value_type;
+	__u32 key_size;
+	__u32 value_size;
+	__u8 key[HV_KVP_EXCHANGE_MAX_KEY_SIZE];
+	union {
+		__u8 value[HV_KVP_EXCHANGE_MAX_VALUE_SIZE];
+		__u32 value_u32;
+		__u64 value_u64;
+	};
+} __attribute__((packed));
+
+struct hv_kvp_msg_enumerate {
+	__u32 index;
+	struct hv_kvp_exchg_msg_value data;
+} __attribute__((packed));
+
+struct hv_kvp_msg_get {
+	struct hv_kvp_exchg_msg_value data;
+};
+
+struct hv_kvp_msg_set {
+	struct hv_kvp_exchg_msg_value data;
+};
+
+struct hv_kvp_msg_delete {
+	__u32 key_size;
+	__u8 key[HV_KVP_EXCHANGE_MAX_KEY_SIZE];
+};
+
+struct hv_kvp_register {
+	__u8 version[HV_KVP_EXCHANGE_MAX_KEY_SIZE];
+};
+
+struct hv_kvp_msg {
+	union {
+		struct hv_kvp_hdr	kvp_hdr;
+		int error;
+	};
+	union {
+		struct hv_kvp_msg_get		kvp_get;
+		struct hv_kvp_msg_set		kvp_set;
+		struct hv_kvp_msg_delete	kvp_delete;
+		struct hv_kvp_msg_enumerate	kvp_enum_data;
+		struct hv_kvp_ipaddr_value      kvp_ip_val;
+		struct hv_kvp_register		kvp_register;
+	} body;
+} __attribute__((packed));
+
+struct hv_kvp_ip_msg {
+	__u8 operation;
+	__u8 pool;
+	struct hv_kvp_ipaddr_value      kvp_ip_val;
+} __attribute__((packed));
+
+#ifdef __KERNEL__
 #include <linux/scatterlist.h>
 #include <linux/list.h>
 #include <linux/uuid.h>
@@ -35,7 +406,7 @@
 #include <linux/mod_devicetable.h>
 
 
-#define MAX_PAGE_BUFFER_COUNT				19
+#define MAX_PAGE_BUFFER_COUNT				32
 #define MAX_MULTIPAGE_BUFFER_COUNT			32 /* 128K */
 
 #pragma pack(push, 1)
@@ -74,14 +445,28 @@ struct hv_ring_buffer {
 
 	u32 interrupt_mask;
 
-	/* Pad it to PAGE_SIZE so that data starts on page boundary */
-	u8	reserved[4084];
-
-	/* NOTE:
-	 * The interrupt_mask field is used only for channels but since our
-	 * vmbus connection also uses this data structure and its data starts
-	 * here, we commented out this field.
+	/*
+	 * Win8 uses some of the reserved bits to implement
+	 * interrupt driven flow management. On the send side
+	 * we can request that the receiver interrupt the sender
+	 * when the ring transitions from being full to being able
+	 * to handle a message of size "pending_send_sz".
+	 *
+	 * Add necessary state for this enhancement.
 	 */
+	u32 pending_send_sz;
+
+	u32 reserved1[12];
+
+	union {
+		struct {
+			u32 feat_pending_send_sz:1;
+		};
+		u32 value;
+	} feature_bits;
+
+	/* Pad it to PAGE_SIZE so that data starts on page boundary */
+	u8	reserved2[4028];
 
 	/*
 	 * Ring data starts here + RingDataStartOffset
@@ -97,6 +482,7 @@ struct hv_ring_buffer_info {
 
 	u32 ring_datasize;		/* < ring_size */
 	u32 ring_data_startoffset;
+	u32 cached_read_index;
 };
 
 struct hv_ring_buffer_debug_info {
@@ -106,6 +492,46 @@ struct hv_ring_buffer_debug_info {
 	u32 bytes_avail_toread;
 	u32 bytes_avail_towrite;
 };
+
+
+/*
+ *
+ * hv_get_ringbuffer_availbytes()
+ *
+ * Get number of bytes available to read and to write to
+ * for the specified ring buffer
+ */
+static inline void
+hv_get_ringbuffer_availbytes(struct hv_ring_buffer_info *rbi,
+			  u32 *read, u32 *write)
+{
+	u32 read_loc, write_loc, dsize;
+
+	smp_read_barrier_depends();
+
+	/* Capture the read/write indices before they changed */
+	read_loc = rbi->ring_buffer->read_index;
+	write_loc = rbi->ring_buffer->write_index;
+	dsize = rbi->ring_datasize;
+
+	*write = write_loc >= read_loc ? dsize - (write_loc - read_loc) :
+		read_loc - write_loc;
+	*read = dsize - *write;
+}
+
+static inline u32 hv_get_cached_bytes_to_write(
+	const struct hv_ring_buffer_info *rbi)
+{
+	u32 read_loc, write_loc, dsize, write;
+
+	dsize = rbi->ring_datasize;
+	read_loc = rbi->cached_read_index;
+	write_loc = rbi->ring_buffer->write_index;
+
+	write = write_loc >= read_loc ? dsize - (write_loc - read_loc) :
+		read_loc - write_loc;
+	return write;
+}
 
 /*
  * We use the same version numbering for all Hyper-V modules.
@@ -127,12 +553,26 @@ struct hv_ring_buffer_debug_info {
  */
 #define HV_DRV_VERSION           "3.1"
 
-
 /*
- * A revision number of vmbus that is used for ensuring both ends on a
- * partition are using compatible versions.
+ * VMBUS version is 32 bit entity broken up into
+ * two 16 bit quantities: major_number. minor_number.
+ *
+ * 0 . 13 (Windows Server 2008)
+ * 1 . 1  (Windows 7)
+ * 2 . 4  (Windows 8)
+ * 3 . 0  (Windows 8 R2)
+ * 4 . 0  (Windows 10)
  */
-#define VMBUS_REVISION_NUMBER		13
+
+#define VERSION_WS2008  ((0 << 16) | (13))
+#define VERSION_WIN7    ((1 << 16) | (1))
+#define VERSION_WIN8    ((2 << 16) | (4))
+#define VERSION_WIN8_1    ((3 << 16) | (0))
+#define VERSION_WIN10	((4 << 16) | (0))
+
+#define VERSION_INVAL -1
+
+#define VERSION_CURRENT VERSION_WIN10
 
 /* Make maximum size of pipe payload of 16K */
 #define MAX_PIPE_DATA_PAYLOAD		(sizeof(u8) * 16384)
@@ -154,9 +594,13 @@ struct hv_ring_buffer_debug_info {
 struct vmbus_channel_offer {
 	uuid_le if_type;
 	uuid_le if_instance;
-	u64 int_latency; /* in 100ns units */
-	u32 if_revision;
-	u32 server_ctx_size;	/* in bytes */
+
+	/*
+	 * These two fields are not currently used.
+	 */
+	u64 reserved1;
+	u64 reserved2;
+
 	u16 chn_flags;
 	u16 mmio_megabytes;		/* in bytes * 1024 * 1024 */
 
@@ -178,7 +622,11 @@ struct vmbus_channel_offer {
 			unsigned char user_def[MAX_PIPE_USER_DEFINED_BYTES];
 		} pipe;
 	} u;
-	u32 padding;
+	/*
+	 * The sub_channel_index is defined in win8.
+	 */
+	u16 sub_channel_index;
+	u16 reserved3;
 } __packed;
 
 /* Server Flags */
@@ -211,7 +659,7 @@ struct vmtransfer_page_range {
 struct vmtransfer_page_packet_header {
 	struct vmpacket_descriptor d;
 	u16 xfer_pageset_id;
-	bool sender_owns_set;
+	u8  sender_owns_set;
 	u8 reserved;
 	u32 range_cnt;
 	struct vmtransfer_page_range ranges[1];
@@ -344,10 +792,7 @@ enum vmbus_channel_message_type {
 	CHANNELMSG_INITIATE_CONTACT		= 14,
 	CHANNELMSG_VERSION_RESPONSE		= 15,
 	CHANNELMSG_UNLOAD			= 16,
-#ifdef VMBUS_FEATURE_PARENT_OR_PEER_MEMORY_MAPPED_INTO_A_CHILD
-	CHANNELMSG_VIEWRANGE_ADD		= 17,
-	CHANNELMSG_VIEWRANGE_REMOVE		= 18,
-#endif
+	CHANNELMSG_UNLOAD_RESPONSE		= 17,
 	CHANNELMSG_COUNT
 };
 
@@ -365,7 +810,7 @@ struct vmbus_channel_query_vmbus_version {
 /* VMBus Version Supported parameters */
 struct vmbus_channel_version_supported {
 	struct vmbus_channel_message_header header;
-	bool version_supported;
+	u8 version_supported;
 } __packed;
 
 /* Offer Channel parameters */
@@ -374,7 +819,25 @@ struct vmbus_channel_offer_channel {
 	struct vmbus_channel_offer offer;
 	u32 child_relid;
 	u8 monitorid;
-	bool monitor_allocated;
+	/*
+	 * win7 and beyond splits this field into a bit field.
+	 */
+	u8 monitor_allocated:1;
+	u8 reserved:7;
+	/*
+	 * These are new fields added in win7 and later.
+	 * Do not access these fields without checking the
+	 * negotiated protocol.
+	 *
+	 * If "is_dedicated_interrupt" is set, we must not set the
+	 * associated bit in the channel bitmap while sending the
+	 * interrupt to the host.
+	 *
+	 * connection_id is to be used in signaling the host.
+	 */
+	u16 is_dedicated_interrupt:1;
+	u16 reserved1:15;
+	u32 connection_id;
 } __packed;
 
 /* Rescind Offer parameters */
@@ -405,8 +868,15 @@ struct vmbus_channel_open_channel {
 	/* GPADL for the channel's ring buffer. */
 	u32 ringbuffer_gpadlhandle;
 
-	/* GPADL for the channel's server context save area. */
-	u32 server_contextarea_gpadlhandle;
+	/*
+	 * Starting with win8, this field will be used to specify
+	 * the target virtual processor on which to deliver the interrupt for
+	 * the host to guest communication.
+	 * Prior to win8, incoming channel interrupts would only
+	 * be delivered on cpu 0. Setting this value to 0 would
+	 * preserve the earlier behavior.
+	 */
+	u32 target_vp;
 
 	/*
 	* The upstream ring buffer begins at offset zero in the memory
@@ -479,21 +949,6 @@ struct vmbus_channel_gpadl_torndown {
 	u32 gpadl;
 } __packed;
 
-#ifdef VMBUS_FEATURE_PARENT_OR_PEER_MEMORY_MAPPED_INTO_A_CHILD
-struct vmbus_channel_view_range_add {
-	struct vmbus_channel_message_header header;
-	PHYSICAL_ADDRESS viewrange_base;
-	u64 viewrange_length;
-	u32 child_relid;
-} __packed;
-
-struct vmbus_channel_view_range_remove {
-	struct vmbus_channel_message_header header;
-	PHYSICAL_ADDRESS viewrange_base;
-	u32 child_relid;
-} __packed;
-#endif
-
 struct vmbus_channel_relid_released {
 	struct vmbus_channel_message_header header;
 	u32 child_relid;
@@ -502,7 +957,7 @@ struct vmbus_channel_relid_released {
 struct vmbus_channel_initiate_contact {
 	struct vmbus_channel_message_header header;
 	u32 vmbus_version_requested;
-	u32 padding2;
+	u32 target_vcpu; /* The VCPU the host should respond to */
 	u64 interrupt_page;
 	u64 monitor_page1;
 	u64 monitor_page2;
@@ -510,13 +965,14 @@ struct vmbus_channel_initiate_contact {
 
 struct vmbus_channel_version_response {
 	struct vmbus_channel_message_header header;
-	bool version_supported;
+	u8 version_supported;
 } __packed;
 
 enum vmbus_channel_state {
 	CHANNEL_OFFER_STATE,
 	CHANNEL_OPENING_STATE,
 	CHANNEL_OPEN_STATE,
+	CHANNEL_OPENED_STATE,
 };
 
 struct vmbus_channel_debug_info {
@@ -570,12 +1026,31 @@ struct vmbus_close_msg {
 	struct vmbus_channel_close_channel msg;
 };
 
+/* Define connection identifier type. */
+union hv_connection_id {
+	u32 asu32;
+	struct {
+		u32 id:24;
+		u32 reserved:8;
+	} u;
+};
+
+/* Definition of the hv_signal_event hypercall input structure. */
+struct hv_input_signal_event {
+	union hv_connection_id connectionid;
+	u16 flag_number;
+	u16 rsvdz;
+};
+
+struct hv_input_signal_event_buffer {
+	u64 align8;
+	struct hv_input_signal_event event;
+};
+
 struct vmbus_channel {
 	struct list_head listentry;
 
 	struct hv_device *device_obj;
-
-	struct work_struct work;
 
 	enum vmbus_channel_state state;
 
@@ -587,6 +1062,8 @@ struct vmbus_channel {
 	u8 monitor_grp;
 	u8 monitor_bit;
 
+	bool rescind; /* got rescind msg */
+
 	u32 ringbuffer_gpadlhandle;
 
 	/* Allocated memory for ring buffer */
@@ -595,7 +1072,6 @@ struct vmbus_channel {
 	struct hv_ring_buffer_info outbound;	/* send to parent */
 	struct hv_ring_buffer_info inbound;	/* receive from parent */
 	spinlock_t inbound_lock;
-	struct workqueue_struct *controlwq;
 
 	struct vmbus_close_msg close_msg;
 
@@ -604,11 +1080,136 @@ struct vmbus_channel {
 
 	void (*onchannel_callback)(void *context);
 	void *channel_callback_context;
+
+	/*
+	 * A channel can be marked for efficient (batched)
+	 * reading:
+	 * If batched_reading is set to "true", we read until the
+	 * channel is empty and hold off interrupts from the host
+	 * during the entire read process.
+	 * If batched_reading is set to "false", the client is not
+	 * going to perform batched reading.
+	 *
+	 * By default we will enable batched reading; specific
+	 * drivers that don't want this behavior can turn it off.
+	 */
+
+	bool batched_reading;
+
+	bool is_dedicated_interrupt;
+	struct hv_input_signal_event_buffer sig_buf;
+	struct hv_input_signal_event *sig_event;
+
+	/*
+	 * Starting with win8, this field will be used to specify
+	 * the target virtual processor on which to deliver the interrupt for
+	 * the host to guest communication.
+	 * Prior to win8, incoming channel interrupts would only
+	 * be delivered on cpu 0. Setting this value to 0 would
+	 * preserve the earlier behavior.
+	 */
+	u32 target_vp;
+	/* The corresponding CPUID in the guest */
+	u32 target_cpu;
+	/*
+	 * Support for sub-channels. For high performance devices,
+	 * it will be useful to have multiple sub-channels to support
+	 * a scalable communication infrastructure with the host.
+	 * The support for sub-channels is implemented as an extention
+	 * to the current infrastructure.
+	 * The initial offer is considered the primary channel and this
+	 * offer message will indicate if the host supports sub-channels.
+	 * The guest is free to ask for sub-channels to be offerred and can
+	 * open these sub-channels as a normal "primary" channel. However,
+	 * all sub-channels will have the same type and instance guids as the
+	 * primary channel. Requests sent on a given channel will result in a
+	 * response on the same channel.
+	 */
+
+	/*
+	 * Sub-channel creation callback. This callback will be called in
+	 * process context when a sub-channel offer is received from the host.
+	 * The guest can open the sub-channel in the context of this callback.
+	 */
+	void (*sc_creation_callback)(struct vmbus_channel *new_sc);
+
+	spinlock_t sc_lock;
+	/*
+	 * All Sub-channels of a primary channel are linked here.
+	 */
+	struct list_head sc_list;
+	/*
+	 * The primary channel this sub-channel belongs to.
+	 * This will be NULL for the primary channel.
+	 */
+	struct vmbus_channel *primary_channel;
+	/*
+	 * Support per-channel state for use by vmbus drivers.
+	 */
+	void *per_channel_state;
+	/*
+	 * To support per-cpu lookup mapping of relid to channel,
+	 * link up channels based on their CPU affinity.
+	 */
+	struct list_head percpu_list;
+
+	int num_sc;
 };
+
+static inline void set_channel_read_state(struct vmbus_channel *c, bool state)
+{
+	c->batched_reading = state;
+}
+
+static inline void set_per_channel_state(struct vmbus_channel *c, void *s)
+{
+	c->per_channel_state = s;
+}
+
+static inline void *get_per_channel_state(struct vmbus_channel *c)
+{
+	return c->per_channel_state;
+}
+
+static inline void
+init_cached_read_index(struct vmbus_channel *channel)
+{
+	struct hv_ring_buffer_info *rbi = &channel->inbound;
+
+	rbi->cached_read_index = rbi->ring_buffer->read_index;
+}
 
 void vmbus_onmessage(void *context);
 
 int vmbus_request_offers(void);
+
+/*
+ * APIs for managing sub-channels.
+ */
+
+void vmbus_set_sc_create_callback(struct vmbus_channel *primary_channel,
+			void (*sc_cr_cb)(struct vmbus_channel *new_sc));
+
+/*
+ * Retrieve the (sub) channel on which to send an outgoing request.
+ * When a primary channel has multiple sub-channels, we choose a
+ * channel whose VCPU binding is closest to the VCPU on which
+ * this call is being made.
+ */
+struct vmbus_channel *vmbus_get_outgoing_channel(struct vmbus_channel *primary);
+
+/*
+ * Check if sub-channels have already been offerred. This API will be useful
+ * when the driver is unloaded after establishing sub-channels. In this case,
+ * when the driver is re-loaded, the driver would have to check if the
+ * subchannels have already been established before attempting to request
+ * the creation of sub-channels.
+ * This function returns TRUE to indicate that subchannels have already been
+ * created.
+ * This function should be invoked after setting the callback function for
+ * sub-channel creation.
+ */
+bool vmbus_are_subchannels_present(struct vmbus_channel *primary);
 
 /* The format must be the same as struct vmdata_gpa_direct */
 struct vmbus_channel_packet_page_buffer {
@@ -646,7 +1247,7 @@ extern int vmbus_open(struct vmbus_channel *channel,
 extern void vmbus_close(struct vmbus_channel *channel);
 
 extern int vmbus_sendpacket(struct vmbus_channel *channel,
-				  const void *buffer,
+				  void *buffer,
 				  u32 bufferLen,
 				  u64 requestid,
 				  enum vmbus_packet_type type,
@@ -783,10 +1384,6 @@ void vmbus_driver_unregister(struct hv_driver *hv_driver);
 #define ICMSGHDRFLAG_REQUEST		2
 #define ICMSGHDRFLAG_RESPONSE		4
 
-#define HV_S_OK				0x00000000
-#define HV_E_FAIL			0x80004005
-#define HV_ERROR_NOT_SUPPORTED		0x80070032
-#define HV_ERROR_MACHINE_LOCKED		0x800704F7
 
 /*
  * While we want to handle util services as regular devices,
@@ -796,6 +1393,7 @@ void vmbus_driver_unregister(struct hv_driver *hv_driver);
 
 struct hv_util_service {
 	u8 *recv_buffer;
+	void *channel;
 	void (*util_cb)(void *);
 	int (*util_init)(struct hv_util_service *);
 	void (*util_deinit)(void);
@@ -867,7 +1465,19 @@ struct hyperv_service_callback {
 	void (*callback) (void *context);
 };
 
-extern void vmbus_prep_negotiate_resp(struct icmsg_hdr *,
-				      struct icmsg_negotiate *, u8 *);
+#define MAX_SRV_VER	0x7ffffff
+extern bool vmbus_prep_negotiate_resp(struct icmsg_hdr *,
+					struct icmsg_negotiate *, u8 *, int,
+					int);
 
+// crashkernel kexec hack
+extern bool hv_vmbus_disabled(void);
+
+/*
+ * Negotiated version with the Host.
+ */
+
+extern __u32 vmbus_proto_version;
+
+#endif /* __KERNEL__ */
 #endif /* _HYPERV_H */

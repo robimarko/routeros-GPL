@@ -451,7 +451,7 @@ found:
 		*cpp = ocp;
 		*cp++ = changes;
 	}
-	*(__sum16 *)cp = csum;
+	put_unaligned(csum, (__sum16 *)cp);
 	cp += 2;
 /* deltaS is now the size of the change section of the compressed header */
 	memcpy(cp,new_seq,deltaS);	/* Write list of deltas */
@@ -522,7 +522,7 @@ slhc_uncompress(struct slcompress *comp, unsigned char *icp, int isize)
 	thp = &cs->cs_tcp;
 	ip = &cs->cs_ip;
 
-	thp->check = *(__sum16 *)cp;
+	thp->check = get_unaligned((__sum16 *)cp);
 	cp += 2;
 
 	thp->psh = (changes & TCP_PUSH_BIT) ? 1 : 0;

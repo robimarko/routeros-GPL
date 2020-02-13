@@ -52,6 +52,10 @@
 #include <asm/firmware.h>
 #endif
 
+#ifdef CONFIG_MIPS_MIKROTIK
+#include <asm/rb/boards.h>
+#endif
+
 /*-------------------------------------------------------------------------*/
 
 /*
@@ -314,6 +318,52 @@ static void tdi_reset (struct ehci_hcd *ehci)
 	ehci_writel(ehci, tmp, reg_ptr);
 }
 
+#ifdef CONFIG_MIPS_MIKROTIK
+static void __iomem *ath_regs[5] = { 
+    NULL, NULL, NULL, NULL, NULL
+};
+static unsigned ath_addrs[5] = { 
+    0x1b0001a8, 0x18116c94, 0x1b4001a8, 0x18116e54, 0x18060018
+};
+
+#define ATH_USB_USB_MODE	((unsigned) ath_regs[0])	// 0x1b0001a8
+#define ATH_USB_PHY_CTRL5	((unsigned) ath_regs[1])	// 0x18116c94
+#define ATH_USB2_USB_MODE	((unsigned) ath_regs[2])	// 0x1b4001a8
+#define ATH_USB2_PHY_CTRL5	((unsigned) ath_regs[3])	// 0x18116e54
+#define ATH_GLOBAL_INT_STATUS	((unsigned) ath_regs[4])	// 0x18060018
+#define ATH_USB_MODE_CM_HOST	0x00000003
+#define ATH_USB_MODE_SDIS	0x00000010
+#define ATH_USB_SET_HOST_MODE	(ATH_USB_MODE_CM_HOST | ATH_USB_MODE_SDIS)
+
+#include "atheros.h"
+
+static void ath_usb_set_ipg_val(u32 ath_usb_phy_ctrl_reg) {
+	ath_mod_reg(ath_usb_phy_ctrl_reg, 0x58, 0xff);
+}
+
+static unsigned ath_get_port_speed(struct ehci_hcd *ehci) {
+	unsigned reg_val = ehci_readl(ehci, &ehci->regs->port_status[0]);
+	return ehci_port_speed(ehci, reg_val);
+}
+
+static void ath_usb_phy_ctrl_sqnce_ovrde(struct usb_hcd *hcd, u32 ctrl_reg) {
+	struct ehci_hcd *ehci = hcd_to_ehci(hcd);
+	unsigned reg_val = ath_reg_rd(&ehci->regs->status);
+
+	if (is_scorpion()) {
+	    ath_mod_reg(ctrl_reg, 0, BIT(29));
+	}
+
+	if ((reg_val & STS_PCD) && (hcd->state != HC_STATE_SUSPENDED) &&
+	    (USB_PORT_STAT_HIGH_SPEED == ath_get_port_speed(ehci))) {
+		unsigned set = BIT(17) | BIT(22) | BIT(23);
+		unsigned clear = BIT(18) | BIT(19) | BIT(20);
+		ath_mod_reg(ctrl_reg, set, clear);
+		ath_mod_reg(ctrl_reg, 0, BIT(17));
+       }
+}
+#endif
+
 /* reset a non-running (STS_HALT == 1) controller */
 static int ehci_reset (struct ehci_hcd *ehci)
 {
@@ -328,6 +378,38 @@ static int ehci_reset (struct ehci_hcd *ehci)
 	command |= CMD_RESET;
 	dbg_cmd (ehci, "reset", command);
 	ehci_writel(ehci, command, &ehci->regs->command);
+
+#ifdef CONFIG_MIPS_MIKROTIK
+	if (mips_machgroup == MACH_GROUP_MT_RB700) {
+	    unsigned reg_val;
+	    udelay(1000);
+	    if (is_wasp() || is_honeybee()) {
+		ath_mod_reg(ATH_USB_USB_MODE, ATH_USB_SET_HOST_MODE, 0);
+	    }
+	    else if (is_scorpion()) {
+		ath_mod_reg(ATH_USB_USB_MODE, ATH_USB_SET_HOST_MODE, 0);
+		ath_mod_reg(ATH_USB2_USB_MODE, ATH_USB_SET_HOST_MODE, 0);
+	    }
+	    else {
+		ath_mod_reg(ATH_USB_USB_MODE, ATH_USB_MODE_CM_HOST, 0);
+	    }
+
+	    udelay(1000);
+	    reg_val = readl(&ehci->regs->port_status[0]);
+	    writel(reg_val | BIT(28), &ehci->regs->port_status[0]);
+	    printk("%s Port Status %x \n", __func__,
+		   readl(&ehci->regs->port_status[0]));
+	    
+	    if (is_new_wasp() || is_honeybee()) {
+		ath_usb_set_ipg_val(ATH_USB_PHY_CTRL5);
+	    }
+	    if (is_scorpion()) {
+		ath_usb_set_ipg_val(ATH_USB_PHY_CTRL5);
+		ath_usb_set_ipg_val(ATH_USB2_PHY_CTRL5);
+	    }
+	}
+#endif
+
 	ehci->rh_state = EHCI_RH_HALTED;
 	ehci->next_statechange = jiffies;
 	retval = handshake (ehci, &ehci->regs->command,
@@ -845,9 +927,18 @@ static irqreturn_t ehci_irq (struct usb_hcd *hcd)
 {
 	struct ehci_hcd		*ehci = hcd_to_ehci (hcd);
 	u32			status, masked_status, pcd_status = 0, cmd;
+#ifdef CONFIG_MIPS_MIKROTIK
+	u32			global_interrupt_status;
+#endif
 	int			bh;
 
 	spin_lock (&ehci->lock);
+
+#ifdef CONFIG_MIPS_MIKROTIK
+	if (is_scorpion() || is_honeybee()) {
+	    global_interrupt_status = ath_reg_rd(ATH_GLOBAL_INT_STATUS);
+	}
+#endif
 
 	status = ehci_readl(ehci, &ehci->regs->status);
 
@@ -873,6 +964,15 @@ static irqreturn_t ehci_irq (struct usb_hcd *hcd)
 	ehci_writel(ehci, masked_status, &ehci->regs->status);
 	cmd = ehci_readl(ehci, &ehci->regs->command);
 	bh = 0;
+
+#ifdef CONFIG_MIPS_MIKROTIK
+	if (is_scorpion() && unlikely((status & STS_FATAL) != 0)) {
+	    ehci_dbg(ehci, "Rx Overflow encountered\n");
+	    ehci_writel(ehci, cmd | CMD_RUN, &ehci->regs->command);
+	    status &= ~STS_FATAL;
+	    udelay(5);
+	}
+#endif /* CONFIG_MACH_AR934x */
 
 #ifdef	VERBOSE_DEBUG
 	/* unrequested/ignored: Frame List Rollover */
@@ -912,6 +1012,16 @@ static irqreturn_t ehci_irq (struct usb_hcd *hcd)
 
 		/* kick root hub later */
 		pcd_status = status;
+
+#ifdef CONFIG_MIPS_MIKROTIK
+		if (is_wasp() && !is_new_wasp()) {
+			ath_usb_phy_ctrl_sqnce_ovrde(hcd, ATH_USB_PHY_CTRL5);
+		}
+		if (is_scorpion()) {
+			ath_usb_phy_ctrl_sqnce_ovrde(hcd, ATH_USB_PHY_CTRL5);
+			ath_usb_phy_ctrl_sqnce_ovrde(hcd, ATH_USB2_PHY_CTRL5);
+		}
+#endif
 
 		/* resume root hub? */
 		if (ehci->rh_state == EHCI_RH_SUSPENDED)
@@ -1286,6 +1396,12 @@ MODULE_LICENSE ("GPL");
 #define	PS3_SYSTEM_BUS_DRIVER	ps3_ehci_driver
 #endif
 
+#ifdef CONFIG_MIPS_MIKROTIK
+#include "ehci-rb400.c"
+#define PLATFORM_DRIVER		ehci_rb400_driver
+#define PLATFORM_DRIVER2	ehci_rb900_driver
+#endif
+
 #ifdef CONFIG_USB_EHCI_HCD_PPC_OF
 #include "ehci-ppc-of.c"
 #define OF_PLATFORM_DRIVER	ehci_hcd_ppc_of_driver
@@ -1351,6 +1467,11 @@ MODULE_LICENSE ("GPL");
 #define PLATFORM_DRIVER		tegra_ehci_driver
 #endif
 
+#ifdef CONFIG_TILEGX
+#include "ehci-tilegx.c"
+#define	PLATFORM_DRIVER		ehci_hcd_tilegx_driver
+#endif
+
 #ifdef CONFIG_USB_EHCI_S5P
 #include "ehci-s5p.c"
 #define PLATFORM_DRIVER		s5p_ehci_driver
@@ -1414,10 +1535,20 @@ static int __init ehci_hcd_init(void)
 	}
 #endif
 
+#ifdef CONFIG_MIPS_MIKROTIK
+	ath_remap(ath_regs, ath_addrs, ARRAY_SIZE(ath_addrs));
+#endif
+
 #ifdef PLATFORM_DRIVER
 	retval = platform_driver_register(&PLATFORM_DRIVER);
 	if (retval < 0)
 		goto clean0;
+#endif
+
+#ifdef PLATFORM_DRIVER2
+	retval = platform_driver_register(&PLATFORM_DRIVER2);
+	if (retval < 0)
+		goto clean00;
 #endif
 
 #ifdef PCI_DRIVER
@@ -1461,6 +1592,10 @@ clean2:
 	pci_unregister_driver(&PCI_DRIVER);
 clean1:
 #endif
+#ifdef PLATFORM_DRIVER2
+	platform_driver_unregister(&PLATFORM_DRIVER2);
+clean00:
+#endif
 #ifdef PLATFORM_DRIVER
 	platform_driver_unregister(&PLATFORM_DRIVER);
 clean0:
@@ -1483,8 +1618,14 @@ static void __exit ehci_hcd_cleanup(void)
 #ifdef OF_PLATFORM_DRIVER
 	platform_driver_unregister(&OF_PLATFORM_DRIVER);
 #endif
+#ifdef PLATFORM_DRIVER2
+	platform_driver_unregister(&PLATFORM_DRIVER2);
+#endif
 #ifdef PLATFORM_DRIVER
 	platform_driver_unregister(&PLATFORM_DRIVER);
+#endif
+#ifdef CONFIG_MIPS_MIKROTIK
+	ath_unmap(ath_regs, ARRAY_SIZE(ath_addrs));
 #endif
 #ifdef PCI_DRIVER
 	pci_unregister_driver(&PCI_DRIVER);

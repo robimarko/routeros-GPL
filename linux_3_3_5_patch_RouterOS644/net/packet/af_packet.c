@@ -94,6 +94,9 @@
 #include <net/inet_common.h>
 #endif
 
+DEFINE_PER_CPU(struct net_device *, per_cpu_port);
+EXPORT_PER_CPU_SYMBOL(per_cpu_port);
+
 /*
    Assumptions:
    - if device has no dev->hard_header routine, it adds and removes ll header
@@ -1494,8 +1497,14 @@ retry:
 	 */
 
 	err = -EMSGSIZE;
+	if (dev->l2mtu) {
+		if (len > dev->l2mtu + dev->hard_header_len)
+			goto out_unlock;
+	}
+	else {
 	if (len > dev->mtu + dev->hard_header_len + VLAN_HLEN)
 		goto out_unlock;
+	}
 
 	if (!skb) {
 		size_t reserved = LL_RESERVED_SPACE(dev);
@@ -1526,7 +1535,7 @@ retry:
 		goto retry;
 	}
 
-	if (len > (dev->mtu + dev->hard_header_len)) {
+	if (!dev->l2mtu && len > (dev->mtu + dev->hard_header_len)) {
 		/* Earlier code assumed this would be a VLAN pkt,
 		 * double-check this now that we have the actual
 		 * packet in hand.
@@ -1604,6 +1613,14 @@ static int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 
 	if (!net_eq(dev_net(dev), sock_net(sk)))
 		goto drop;
+
+	if (sk->sk_type == SOCK_DGRAM) {
+		if (skb->protocol != htons(ETH_P_IP) && skb->protocol != htons(ETH_P_IPV6))
+			goto drop;
+		
+		/* NOTE: incoming PPP packets can have ethernet header */
+		skb_pull(skb, skb_network_offset(skb));
+	}
 
 	skb->dev = dev;
 
@@ -1729,6 +1746,14 @@ static int tpacket_rcv(struct sk_buff *skb, struct net_device *dev,
 	if (!net_eq(dev_net(dev), sock_net(sk)))
 		goto drop;
 
+	if (sk->sk_type == SOCK_DGRAM) {
+		if (skb->protocol != htons(ETH_P_IP) && skb->protocol != htons(ETH_P_IPV6))
+			goto drop;
+		
+		/* NOTE: incoming PPP packets can have ethernet header */
+		skb_pull(skb, skb_network_offset(skb));
+	}
+
 	if (dev->header_ops) {
 		if (sk->sk_type != SOCK_DGRAM)
 			skb_push(skb, skb->data - skb_mac_header(skb));
@@ -1845,7 +1870,11 @@ static int tpacket_rcv(struct sk_buff *skb, struct net_device *dev,
 		} else {
 			h.h2->tp_vlan_tci = 0;
 		}
-		h.h2->tp_padding = 0;
+		h.h2->tp_padding = smp_processor_id();
+		{
+			struct net_device *port = __get_cpu_var(per_cpu_port);
+			h.h2->tp_port_ifindex = port ? port->ifindex : 0;
+		}
 		hdrlen = sizeof(*h.h2);
 		break;
 	case TPACKET_V3:
@@ -2088,8 +2117,14 @@ static int tpacket_snd(struct packet_sock *po, struct msghdr *msg)
 	size_max = po->tx_ring.frame_size
 		- (po->tp_hdrlen - sizeof(struct sockaddr_ll));
 
+	if (dev->l2mtu) {
+		if (size_max > dev->l2mtu + reserve)
+			size_max = dev->l2mtu + reserve;
+	}
+	else {
 	if (size_max > dev->mtu + reserve)
 		size_max = dev->mtu + reserve;
+	}
 
 	do {
 		ph = packet_current_frame(po, &po->tx_ring,
@@ -2289,8 +2324,14 @@ static int packet_snd(struct socket *sock,
 	}
 
 	err = -EMSGSIZE;
+	if (dev->l2mtu) {
+		if (!gso_type && (len > dev->l2mtu + reserve))
+			goto out_unlock;
+	}
+	else {
 	if (!gso_type && (len > dev->mtu + reserve + VLAN_HLEN))
 		goto out_unlock;
+	}
 
 	err = -ENOBUFS;
 	hlen = LL_RESERVED_SPACE(dev);
@@ -2315,7 +2356,7 @@ static int packet_snd(struct socket *sock,
 	if (err < 0)
 		goto out_free;
 
-	if (!gso_type && (len > dev->mtu + reserve)) {
+	if (!dev->l2mtu && !gso_type && (len > dev->mtu + reserve)) {
 		/* Earlier code assumed this would be a VLAN pkt,
 		 * double-check this now that we have the actual
 		 * packet in hand.

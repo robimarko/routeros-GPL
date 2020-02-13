@@ -25,10 +25,15 @@ static void op_nmi_exit(void) { }
 #endif
 
 extern void x86_backtrace(struct pt_regs * const regs, unsigned int depth);
+extern int __init hrtimer_oprofile_init(struct oprofile_operations *);
 
 int __init oprofile_arch_init(struct oprofile_operations *ops)
 {
 	ops->backtrace = x86_backtrace;
+
+	if (hrtimer_oprofile_init(ops) == 0)
+		return 0;
+
 	return op_nmi_init(ops);
 }
 

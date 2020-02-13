@@ -77,6 +77,7 @@ static int fib4_rule_action(struct fib_rule *rule, struct flowi *flp,
 
 	switch (rule->action) {
 	case FR_ACT_TO_TBL:
+	case FR_ACT_ONLY_TO_TBL:
 		break;
 
 	case FR_ACT_UNREACHABLE:
@@ -95,11 +96,14 @@ static int fib4_rule_action(struct fib_rule *rule, struct flowi *flp,
 
 	tbl = fib_get_table(rule->fr_net, rule->table);
 	if (!tbl)
-		goto errout;
+		goto errout2;
 
 	err = fib_table_lookup(tbl, &flp->u.ip4, (struct fib_result *) arg->result, arg->flags);
-	if (err > 0)
-		err = -EAGAIN;
+	if (err > 0) {
+errout2:
+		if (rule->action == FR_ACT_ONLY_TO_TBL) err = -ENETUNREACH;
+		else err = -EAGAIN;
+        }
 errout:
 	return err;
 }

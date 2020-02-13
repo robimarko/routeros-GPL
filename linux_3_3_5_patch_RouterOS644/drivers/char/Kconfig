@@ -171,6 +171,13 @@ config PPDEV
 	  If unsure, say N.
 
 source "drivers/tty/hvc/Kconfig"
+config HVC_META
+	bool "MetaROUTER Hypervisor Console support"
+	depends on METAROUTER || MIPS_MIKROTIK
+	select HVC_DRIVER
+	select HVC_IRQ
+	default y
+
 
 config VIRTIO_CONSOLE
 	tristate "Virtio console"
@@ -628,4 +635,3 @@ config TILE_SROM
 	  how to partition a single ROM for multiple purposes.
 
 endmenu
-

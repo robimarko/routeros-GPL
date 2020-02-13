@@ -58,6 +58,7 @@ void nf_ct_gre_keymap_flush(struct net *net)
 	write_lock_bh(&net_gre->keymap_lock);
 	list_for_each_entry_safe(km, tmp, &net_gre->keymap_list, list) {
 		list_del(&km->list);
+		*km->kmp = NULL;
 		kfree(km);
 	}
 	write_unlock_bh(&net_gre->keymap_lock);
@@ -106,9 +107,9 @@ int nf_ct_gre_keymap_add(struct nf_conn *ct, enum ip_conntrack_dir dir,
 	struct nf_ct_gre_keymap **kmp, *km;
 
 	kmp = &help->help.ct_pptp_info.keymap[dir];
-	if (*kmp) {
-		/* check whether it's a retransmission */
+  retry:
 		read_lock_bh(&net_gre->keymap_lock);
+	if (*kmp) {
 		list_for_each_entry(km, &net_gre->keymap_list, list) {
 			if (gre_key_cmpfn(km, t) && km == *kmp) {
 				read_unlock_bh(&net_gre->keymap_lock);
@@ -120,17 +121,24 @@ int nf_ct_gre_keymap_add(struct nf_conn *ct, enum ip_conntrack_dir dir,
 			 dir == IP_CT_DIR_REPLY ? "reply" : "orig", ct);
 		return -EEXIST;
 	}
+	read_unlock_bh(&net_gre->keymap_lock);
 
 	km = kmalloc(sizeof(*km), GFP_ATOMIC);
 	if (!km)
 		return -ENOMEM;
 	memcpy(&km->tuple, t, sizeof(*t));
-	*kmp = km;
 
 	pr_debug("adding new entry %p: ", km);
 	nf_ct_dump_tuple(&km->tuple);
 
 	write_lock_bh(&net_gre->keymap_lock);
+	if (*kmp) {
+	    write_unlock_bh(&net_gre->keymap_lock);
+	    kfree(km);
+	    goto retry;
+	}
+	*kmp = km;
+	km->kmp = kmp;
 	list_add_tail(&km->list, &net_gre->keymap_list);
 	write_unlock_bh(&net_gre->keymap_lock);
 
@@ -198,10 +206,13 @@ static bool gre_pkt_to_tuple(const struct sk_buff *skb, unsigned int dataoff,
 	if (!pgrehdr)
 		return true;
 
+	/* track EoGRE too */
+#if 0
 	if (ntohs(grehdr->protocol) != GRE_PROTOCOL_PPTP) {
 		pr_debug("GRE_VERSION_PPTP but unknown proto\n");
 		return false;
 	}
+#endif
 
 	tuple->dst.u.gre.key = pgrehdr->call_id;
 	srckey = gre_keymap_lookup(net, tuple);
@@ -243,6 +254,12 @@ static int gre_packet(struct nf_conn *ct,
 		/* Also, more likely to be important, and not a probe. */
 		if (!test_and_set_bit(IPS_ASSURED_BIT, &ct->status))
 			nf_conntrack_event_cache(IPCT_ASSURED, ct);
+
+		/* give longer life for controlling TCP connection */
+		if (master_ct(ct)) {
+			nf_ct_refresh_acct(master_ct(ct), ctinfo, skb,
+					   ct->proto.gre.stream_timeout);
+		}
 	} else
 		nf_ct_refresh_acct(ct, ctinfo, skb,
 				   ct->proto.gre.timeout);
@@ -325,12 +342,12 @@ static int __init nf_ct_proto_gre_init(void)
 {
 	int rv;
 
-	rv = nf_conntrack_l4proto_register(&nf_conntrack_l4proto_gre4);
-	if (rv < 0)
-		return rv;
 	rv = register_pernet_subsys(&proto_gre_net_ops);
 	if (rv < 0)
-		nf_conntrack_l4proto_unregister(&nf_conntrack_l4proto_gre4);
+		return rv;
+	rv = nf_conntrack_l4proto_register(&nf_conntrack_l4proto_gre4);
+	if (rv < 0)
+		unregister_pernet_subsys(&proto_gre_net_ops);
 	return rv;
 }
 

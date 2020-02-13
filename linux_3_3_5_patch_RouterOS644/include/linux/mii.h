@@ -175,7 +175,7 @@ extern int mii_nway_restart (struct mii_if_info *mii);
 extern int mii_ethtool_gset(struct mii_if_info *mii, struct ethtool_cmd *ecmd);
 extern int mii_ethtool_sset(struct mii_if_info *mii, struct ethtool_cmd *ecmd);
 extern int mii_check_gmii_support(struct mii_if_info *mii);
-extern void mii_check_link (struct mii_if_info *mii);
+extern int mii_check_link (struct mii_if_info *mii);
 extern unsigned int mii_check_media (struct mii_if_info *mii,
 				     unsigned int ok_to_print,
 				     unsigned int init_media);

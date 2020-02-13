@@ -14,6 +14,10 @@
 #include <linux/module.h>
 #include <linux/scatterlist.h>
 #include <linux/string.h>
+#ifdef CONFIG_MAPPED_KERNEL
+#include <linux/hardirq.h>
+#include <linux/sched.h>
+#endif
 #include <linux/gfp.h>
 #include <linux/highmem.h>
 
@@ -49,11 +53,9 @@ static gfp_t massage_gfp_flags(const struct device *dev, gfp_t gfp)
 	/* ignore region specifiers */
 	gfp &= ~(__GFP_DMA | __GFP_DMA32 | __GFP_HIGHMEM);
 
-#ifdef CONFIG_ISA
 	if (dev == NULL)
 		dma_flag = __GFP_DMA;
 	else
-#endif
 #if defined(CONFIG_ZONE_DMA32) && defined(CONFIG_ZONE_DMA)
 	     if (dev->coherent_dma_mask < DMA_BIT_MASK(32))
 			dma_flag = __GFP_DMA;
@@ -110,12 +112,24 @@ static void *mips_dma_alloc_coherent(struct device *dev, size_t size,
 	ret = (void *) __get_free_pages(gfp, get_order(size));
 
 	if (ret) {
+#if (defined (CONFIG_RALINK_MT7621) && (CONFIG_RALINK_RAM_SIZE < 512))
+		/*
+		 * Access memory uncached via the shadow above physical memory.
+		 * This avoids the uncached access hitting region with CCA
+		 * overriden to writethrough.
+		 */
+		ret += (CONFIG_RALINK_RAM_SIZE * 1024 * 1024);
+#endif
 		memset(ret, 0, size);
 		*dma_handle = plat_map_dma_mem(dev, ret, size);
 
 		if (!plat_device_is_coherent(dev)) {
 			dma_cache_wback_inv((unsigned long) ret, size);
+#ifndef CONFIG_MAPPED_KERNEL
 			ret = UNCAC_ADDR(ret);
+#else
+			ret = ioremap((unsigned long) *dma_handle, size);
+#endif
 		}
 	}
 
@@ -131,6 +145,8 @@ void dma_free_noncoherent(struct device *dev, size_t size, void *vaddr,
 }
 EXPORT_SYMBOL(dma_free_noncoherent);
 
+#define IS_KSEG1(addr) (((unsigned long)(addr) & ~0x1fffffffUL) == CKSEG1)
+
 static void mips_dma_free_coherent(struct device *dev, size_t size, void *vaddr,
 	dma_addr_t dma_handle)
 {
@@ -140,10 +156,37 @@ static void mips_dma_free_coherent(struct device *dev, size_t size, void *vaddr,
 	if (dma_release_from_coherent(dev, order, vaddr))
 		return;
 
+#if (defined (CONFIG_RALINK_MT7621) && (CONFIG_RALINK_RAM_SIZE < 512))
+	/*
+	 * Access memory uncached via the shadow above physical memory.
+	 * This avoids the uncached access hitting region with CCA
+	 * overriden to writethrough.
+	 */
+	addr -= (CONFIG_RALINK_RAM_SIZE * 1024 * 1024);
+#endif
+
+#ifndef CONFIG_MAPPED_KERNEL
 	plat_unmap_dma_mem(dev, dma_handle, size, DMA_BIDIRECTIONAL);
 
 	if (!plat_device_is_coherent(dev))
 		addr = CAC_ADDR(addr);
+#else
+	if (!plat_device_is_coherent(dev)) {
+		if (IS_KSEG1(addr)) {
+			addr = CAC_ADDR(addr);
+		} else {
+			pgd_t *pgd = init_mm.pgd + __pgd_offset(addr);
+			pud_t *pud = pud_offset(pgd, addr);
+			pmd_t *pmd = pmd_offset(pud, addr);
+			pte_t *pte = pte_offset(pmd, addr);
+			
+			if (pte_present(*pte)) {
+				addr = (unsigned long) pfn_to_kaddr(pte_pfn(*pte));
+				iounmap(vaddr);
+			}
+		}
+	}
+#endif
 
 	free_pages(addr, get_order(size));
 }

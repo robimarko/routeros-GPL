@@ -365,6 +365,9 @@ do_lo_receive(struct loop_device *lo,
 	struct file *file;
 	ssize_t retval;
 
+	pgoff_t index;
+	pgoff_t last_index;
+
 	cookie.lo = lo;
 	cookie.page = bvec->bv_page;
 	cookie.offset = bvec->bv_offset;
@@ -378,6 +381,11 @@ do_lo_receive(struct loop_device *lo,
 
 	file = lo->lo_backing_file;
 	retval = splice_direct_to_actor(file, &sd, lo_direct_splice_actor);
+
+	/* HACK: try to free up page cache from tripple buffers */
+	index = pos >> PAGE_CACHE_SHIFT;
+	last_index = (pos + bsize + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
+	invalidate_mapping_pages(file->f_mapping, index, last_index);
 
 	return retval;
 }

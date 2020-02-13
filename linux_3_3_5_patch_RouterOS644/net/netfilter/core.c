@@ -74,6 +74,7 @@ int nf_register_hook(struct nf_hook_ops *reg)
 		if (reg->priority < elem->priority)
 			break;
 	}
+	fp_nf_changed(1, reg->pf);
 	list_add_rcu(&reg->list, elem->list.prev);
 	mutex_unlock(&nf_hook_mutex);
 #if defined(CONFIG_JUMP_LABEL)
@@ -87,6 +88,7 @@ void nf_unregister_hook(struct nf_hook_ops *reg)
 {
 	mutex_lock(&nf_hook_mutex);
 	list_del_rcu(&reg->list);
+	fp_nf_changed(-1, reg->pf);
 	mutex_unlock(&nf_hook_mutex);
 #if defined(CONFIG_JUMP_LABEL)
 	jump_label_dec(&nf_hooks_needed[reg->pf][reg->hooknum]);
@@ -192,7 +194,7 @@ next_hook:
 			ret = -EPERM;
 	} else if ((verdict & NF_VERDICT_MASK) == NF_QUEUE) {
 		int err = nf_queue(skb, elem, pf, hook, indev, outdev, okfn,
-						verdict >> NF_VERDICT_QBITS);
+			       verdict);
 		if (err < 0) {
 			if (err == -ECANCELED)
 				goto next_hook;

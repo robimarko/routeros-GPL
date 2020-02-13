@@ -68,7 +68,7 @@
 static struct kmem_cache *peer_cachep __read_mostly;
 
 static LIST_HEAD(gc_list);
-static const int gc_delay = 60 * HZ;
+static const int gc_delay = HZ;
 static struct delayed_work gc_work;
 static DEFINE_SPINLOCK(gc_lock);
 
@@ -110,7 +110,7 @@ int inet_peer_maxttl __read_mostly = 10 * 60 * HZ;	/* usual time to live: 10 min
 
 static void inetpeer_gc_worker(struct work_struct *work)
 {
-	struct inet_peer *p, *n;
+	struct inet_peer *p, *n, *c;
 	LIST_HEAD(list);
 
 	spin_lock_bh(&gc_lock);
@@ -122,17 +122,19 @@ static void inetpeer_gc_worker(struct work_struct *work)
 
 	list_for_each_entry_safe(p, n, &list, gc_list) {
 
-		if(need_resched())
+		if (need_resched())
 			cond_resched();
 
-		if (p->avl_left != peer_avl_empty) {
-			list_add_tail(&p->avl_left->gc_list, &list);
-			p->avl_left = peer_avl_empty;
+		c = rcu_dereference_protected(p->avl_left, 1);
+		if (c != peer_avl_empty) {
+			list_add_tail(&c->gc_list, &list);
+			p->avl_left = peer_avl_empty_rcu;
 		}
 
-		if (p->avl_right != peer_avl_empty) {
-			list_add_tail(&p->avl_right->gc_list, &list);
-			p->avl_right = peer_avl_empty;
+		c = rcu_dereference_protected(p->avl_right, 1);
+		if (c != peer_avl_empty) {
+			list_add_tail(&c->gc_list, &list);
+			p->avl_right = peer_avl_empty_rcu;
 		}
 
 		n = list_entry(p->gc_list.next, struct inet_peer, gc_list);
@@ -454,17 +456,19 @@ struct inet_peer *inet_getpeer(const struct inetpeer_addr *daddr, int create)
 	/* Attempt a lockless lookup first.
 	 * Because of a concurrent writer, we might not find an existing entry.
 	 */
+	do {
 	rcu_read_lock();
 	sequence = read_seqbegin(&base->lock);
 	p = lookup_rcu(daddr, base);
 	invalidated = read_seqretry(&base->lock, sequence);
 	rcu_read_unlock();
-
 	if (p)
 		return p;
+	} while (invalidated);
+
 
 	/* If no writer did a change during our lookup, we can return early. */
-	if (!create && !invalidated)
+	if (!create)
 		return NULL;
 
 	/* retry an exact lookup, taking the lock before.
@@ -495,7 +499,10 @@ relookup:
 		p->tcp_ts_stamp = 0;
 		p->metrics[RTAX_LOCK-1] = INETPEER_METRICS_NEW;
 		p->rate_tokens = 0;
-		p->rate_last = 0;
+		/* 60*HZ is arbitrary, but chosen enough high so that the first
+		 * calculation of tokens is at its maximum.
+		 */
+		p->rate_last = jiffies - 60*HZ;
 		p->pmtu_expires = 0;
 		p->pmtu_orig = 0;
 		memset(&p->redirect_learned, 0, sizeof(p->redirect_learned));
@@ -560,29 +567,30 @@ bool inet_peer_xrlim_allow(struct inet_peer *peer, int timeout)
 }
 EXPORT_SYMBOL(inet_peer_xrlim_allow);
 
+static void inetpeer_inval_rcu(struct rcu_head *head)
+{
+	struct inet_peer *p = container_of(head, struct inet_peer, gc_rcu);
+
+	spin_lock_bh(&gc_lock);
+	list_add_tail(&p->gc_list, &gc_list);
+	spin_unlock_bh(&gc_lock);
+
+	schedule_delayed_work(&gc_work, gc_delay);
+}
+
 void inetpeer_invalidate_tree(int family)
 {
-	struct inet_peer *old, *new, *prev;
+	struct inet_peer *root;
 	struct inet_peer_base *base = family_to_base(family);
 
 	write_seqlock_bh(&base->lock);
 
-	old = base->root;
-	if (old == peer_avl_empty_rcu)
-		goto out;
-
-	new = peer_avl_empty_rcu;
-
-	prev = cmpxchg(&base->root, old, new);
-	if (prev == old) {
+	root = rcu_deref_locked(base->root, base);
+	if (root != peer_avl_empty) {
+		base->root = peer_avl_empty_rcu;
 		base->total = 0;
-		spin_lock(&gc_lock);
-		list_add_tail(&prev->gc_list, &gc_list);
-		spin_unlock(&gc_lock);
-		schedule_delayed_work(&gc_work, gc_delay);
+		call_rcu(&root->gc_rcu, inetpeer_inval_rcu);
 	}
-
-out:
 	write_sequnlock_bh(&base->lock);
 }
 EXPORT_SYMBOL(inetpeer_invalidate_tree);

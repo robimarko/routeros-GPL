@@ -109,6 +109,9 @@ static void neigh_cleanup_and_release(struct neighbour *neigh)
 	if (neigh->parms->neigh_cleanup)
 		neigh->parms->neigh_cleanup(neigh);
 
+#ifdef CONFIG_TILE_NETLIB
+	call_netevent_notifiers(NETEVENT_NEIGH_RELEASE, neigh);
+#endif
 	__neigh_notify(neigh, RTM_DELNEIGH, 0);
 	neigh_release(neigh);
 }
@@ -175,7 +178,13 @@ static int neigh_forced_gc(struct neigh_table *tbl)
 static void neigh_add_timer(struct neighbour *n, unsigned long when)
 {
 	neigh_hold(n);
-	if (unlikely(mod_timer(&n->timer, when))) {
+	if (!timer_pending(&n->timer)) {
+	    unsigned cpu = get_random_int() % num_online_cpus();
+	    n->timer.expires = when;
+	    add_timer_on(&n->timer, cpu);
+	}
+	else {
+//	if (unlikely(mod_timer(&n->timer, when))) {
 		printk("NEIGH: BUG, double timer add, state is %x\n",
 		       n->nud_state);
 		dump_stack();
@@ -1285,8 +1294,6 @@ int neigh_resolve_output(struct neighbour *neigh, struct sk_buff *skb)
 	if (!dst)
 		goto discard;
 
-	__skb_pull(skb, skb_network_offset(skb));
-
 	if (!neigh_event_send(neigh, skb)) {
 		int err;
 		struct net_device *dev = neigh->dev;
@@ -1296,6 +1303,7 @@ int neigh_resolve_output(struct neighbour *neigh, struct sk_buff *skb)
 			neigh_hh_init(neigh, dst);
 
 		do {
+			__skb_pull(skb, skb_network_offset(skb));
 			seq = read_seqbegin(&neigh->ha_lock);
 			err = dev_hard_header(skb, dev, ntohs(skb->protocol),
 					      neigh->ha, NULL, skb->len);
@@ -1326,9 +1334,8 @@ int neigh_connected_output(struct neighbour *neigh, struct sk_buff *skb)
 	unsigned int seq;
 	int err;
 
-	__skb_pull(skb, skb_network_offset(skb));
-
 	do {
+		__skb_pull(skb, skb_network_offset(skb));
 		seq = read_seqbegin(&neigh->ha_lock);
 		err = dev_hard_header(skb, dev, ntohs(skb->protocol),
 				      neigh->ha, NULL, skb->len);
@@ -2023,6 +2030,7 @@ static int neightbl_set(struct sk_buff *skb, struct nlmsghdr *nlh, void *arg)
 				break;
 			case NDTPA_BASE_REACHABLE_TIME:
 				p->base_reachable_time = nla_get_msecs(tbp[i]);
+				tbl->last_rand = jiffies - 301 * HZ;
 				break;
 			case NDTPA_GC_STALETIME:
 				p->gc_staletime = nla_get_msecs(tbp[i]);

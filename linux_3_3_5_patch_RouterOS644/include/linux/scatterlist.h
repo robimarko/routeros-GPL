@@ -109,7 +109,9 @@ static inline struct page *sg_page(struct scatterlist *sg)
 static inline void sg_set_buf(struct scatterlist *sg, const void *buf,
 			      unsigned int buflen)
 {
-	sg_set_page(sg, virt_to_page(buf), buflen, offset_in_page(buf));
+	struct page *p = is_vmalloc_addr(buf) ?
+		vmalloc_to_page(buf) : virt_to_page(buf); 
+	sg_set_page(sg, p, buflen, offset_in_page(buf));
 }
 
 /*

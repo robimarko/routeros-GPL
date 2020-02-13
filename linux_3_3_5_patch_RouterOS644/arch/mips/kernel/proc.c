@@ -12,6 +12,7 @@
 #include <asm/cpu-features.h>
 #include <asm/mipsregs.h>
 #include <asm/processor.h>
+#include <asm/time.h>
 #include <asm/mips_machine.h>
 
 unsigned int vced_count, vcei_count;
@@ -19,6 +20,7 @@ unsigned int vced_count, vcei_count;
 static int show_cpuinfo(struct seq_file *m, void *v)
 {
 	unsigned long n = (unsigned long) v - 1;
+	unsigned cpu_khz = mips_hpt_frequency / 500;
 	unsigned int version = cpu_data[n].processor_id;
 	unsigned int fp_vers = cpu_data[n].fpu_id;
 	char fmt [64];
@@ -45,6 +47,8 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	seq_printf(m, fmt, __cpu_name[n],
 	                           (version >> 4) & 0x0f, version & 0x0f,
 	                           (fp_vers >> 4) & 0x0f, fp_vers & 0x0f);
+	seq_printf(m, "cpu MHz\t\t\t: %u.%03u\n",
+		   cpu_khz / 1000, (cpu_khz % 1000));
 	seq_printf(m, "BogoMIPS\t\t: %u.%02u\n",
 	              cpu_data[n].udelay_val / (500000/HZ),
 	              (cpu_data[n].udelay_val / (5000/HZ)) % 100);

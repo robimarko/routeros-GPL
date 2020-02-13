@@ -33,12 +33,38 @@ static int pause_on_oops;
 static int pause_on_oops_flag;
 static DEFINE_SPINLOCK(pause_on_oops_lock);
 
-int panic_timeout;
+int panic_timeout = 1;
 EXPORT_SYMBOL_GPL(panic_timeout);
 
 ATOMIC_NOTIFIER_HEAD(panic_notifier_list);
 
 EXPORT_SYMBOL(panic_notifier_list);
+
+int register_panic_notifier(struct notifier_block *nb)
+{
+	return atomic_notifier_chain_register(&panic_notifier_list, nb);
+}
+EXPORT_SYMBOL(register_panic_notifier);
+
+int unregister_panic_notifier(struct notifier_block *nb)
+{
+	return atomic_notifier_chain_unregister(&panic_notifier_list, nb);
+}
+EXPORT_SYMBOL(unregister_panic_notifier);
+
+ATOMIC_NOTIFIER_HEAD(oops_notifier_list);
+
+int register_oops_notifier(struct notifier_block *nb)
+{
+	return atomic_notifier_chain_register(&oops_notifier_list, nb);
+}
+EXPORT_SYMBOL(register_oops_notifier);
+
+int unregister_oops_notifier(struct notifier_block *nb)
+{
+	return atomic_notifier_chain_unregister(&oops_notifier_list, nb);
+}
+EXPORT_SYMBOL(unregister_oops_notifier);
 
 static long no_blink(int state)
 {
@@ -108,6 +134,13 @@ void panic(const char *fmt, ...)
 	 */
 	crash_kexec(NULL);
 
+#ifdef CONFIG_TILE
+	/* Notify the simulator that there was a kernel panic. */
+	__insn_mtspr(SPR_SIM_CONTROL, SIM_CONTROL_PANIC);
+
+	dump_stack();
+#endif
+
 	kmsg_dump(KMSG_DUMP_PANIC);
 
 	/*
@@ -163,6 +196,9 @@ void panic(const char *fmt, ...)
 		caller = (unsigned long)__builtin_return_address(0);
 		disabled_wait(caller);
 	}
+#endif
+#ifdef CONFIG_TILE
+	machine_halt();
 #endif
 	local_irq_enable();
 	for (i = 0; ; i += PANIC_TIMER_STEP) {
@@ -309,7 +345,7 @@ static void do_oops_enter_exit(void)
 			spin_counter = pause_on_oops;
 			do {
 				spin_unlock(&pause_on_oops_lock);
-				spin_msec(MSEC_PER_SEC);
+				spin_msec(1);
 				spin_lock(&pause_on_oops_lock);
 			} while (--spin_counter);
 			pause_on_oops_flag = 0;
@@ -385,8 +421,10 @@ void print_oops_end_marker(void)
  */
 void oops_exit(void)
 {
-	do_oops_enter_exit();
 	print_oops_end_marker();
+
+	atomic_notifier_call_chain(&oops_notifier_list, 0, 0);
+	do_oops_enter_exit();
 	kmsg_dump(KMSG_DUMP_OOPS);
 }
 
@@ -400,7 +438,9 @@ static void warn_slowpath_common(const char *file, int line, void *caller,
 				 unsigned taint, struct slowpath_args *args)
 {
 	const char *board;
+	unsigned long flags;
 
+	local_irq_save(flags);
 	printk(KERN_WARNING "------------[ cut here ]------------\n");
 	printk(KERN_WARNING "WARNING: at %s:%d %pS()\n", file, line, caller);
 	board = dmi_get_system_info(DMI_PRODUCT_NAME);
@@ -414,6 +454,7 @@ static void warn_slowpath_common(const char *file, int line, void *caller,
 	dump_stack();
 	print_oops_end_marker();
 	add_taint(taint);
+	local_irq_restore(flags);
 }
 
 void warn_slowpath_fmt(const char *file, int line, const char *fmt, ...)

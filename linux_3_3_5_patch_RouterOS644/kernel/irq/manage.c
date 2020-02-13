@@ -90,6 +90,7 @@ int irq_can_set_affinity(unsigned int irq)
 
 	return 1;
 }
+EXPORT_SYMBOL(irq_can_set_affinity);
 
 /**
  *	irq_set_thread_affinity - Notify irq threads to adjust affinity
@@ -191,6 +192,7 @@ int irq_set_affinity(unsigned int irq, const struct cpumask *mask)
 	raw_spin_unlock_irqrestore(&desc->lock, flags);
 	return ret;
 }
+EXPORT_SYMBOL(irq_set_affinity);
 
 int irq_set_affinity_hint(unsigned int irq, const struct cpumask *m)
 {
@@ -1454,6 +1456,19 @@ int request_any_context_irq(unsigned int irq, irq_handler_t handler,
 }
 EXPORT_SYMBOL_GPL(request_any_context_irq);
 
+void irq_set_pending(unsigned int irq)
+{
+        struct irq_desc *desc = irq_to_desc(irq);
+        unsigned long flags;
+
+        if (desc) {
+                raw_spin_lock_irqsave(&desc->lock, flags);
+                desc->istate |= IRQS_PENDING;
+                raw_spin_unlock_irqrestore(&desc->lock, flags);
+        }
+}
+EXPORT_SYMBOL_GPL(irq_set_pending);
+
 void enable_percpu_irq(unsigned int irq, unsigned int type)
 {
 	unsigned int cpu = smp_processor_id();
@@ -1479,6 +1494,7 @@ void enable_percpu_irq(unsigned int irq, unsigned int type)
 out:
 	irq_put_desc_unlock(desc, flags);
 }
+EXPORT_SYMBOL(enable_percpu_irq);
 
 void disable_percpu_irq(unsigned int irq)
 {
@@ -1492,6 +1508,7 @@ void disable_percpu_irq(unsigned int irq)
 	irq_percpu_disable(desc, cpu);
 	irq_put_desc_unlock(desc, flags);
 }
+EXPORT_SYMBOL(disable_percpu_irq);
 
 /*
  * Internal function to unregister a percpu irqaction.
@@ -1574,6 +1591,7 @@ void free_percpu_irq(unsigned int irq, void __percpu *dev_id)
 	kfree(__free_percpu_irq(irq, dev_id));
 	chip_bus_sync_unlock(desc);
 }
+EXPORT_SYMBOL(free_percpu_irq);
 
 /**
  *	setup_percpu_irq - setup a per-cpu interrupt
@@ -1644,3 +1662,4 @@ int request_percpu_irq(unsigned int irq, irq_handler_t handler,
 
 	return retval;
 }
+EXPORT_SYMBOL(request_percpu_irq);

@@ -30,7 +30,6 @@ EXPORT_SYMBOL(strnlen_user_asm);
 EXPORT_SYMBOL(strncpy_from_user_asm);
 EXPORT_SYMBOL(clear_user_asm);
 EXPORT_SYMBOL(flush_user_asm);
-EXPORT_SYMBOL(inv_user_asm);
 EXPORT_SYMBOL(finv_user_asm);
 
 /* arch/tile/kernel/entry.S */
@@ -63,6 +62,8 @@ EXPORT_SYMBOL(hv_dev_poll_cancel);
 EXPORT_SYMBOL(hv_dev_close);
 EXPORT_SYMBOL(hv_sysconf);
 EXPORT_SYMBOL(hv_confstr);
+EXPORT_SYMBOL(hv_uart_ctrl);
+EXPORT_SYMBOL(hv_get_voltage);
 
 /* libgcc.a */
 uint32_t __udivsi3(uint32_t dividend, uint32_t divisor);

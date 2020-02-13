@@ -1439,6 +1439,13 @@ void netdev_unregister_kobject(struct net_device * net)
 
 	kobject_get(&dev->kobj);
 
+	if (strncmp(net->name, "bond", 4) &&
+	    strncmp(net->name, "eth", 3) &&
+	    strncmp(net->name, "wil", 3) &&
+	    strncmp(net->name, "lte", 3)) {
+		return;
+	}
+
 	remove_queue_kobjects(net);
 
 	device_del(dev);
@@ -1473,6 +1480,15 @@ int netdev_register_kobject(struct net_device *net)
 #endif
 #endif
 #endif /* CONFIG_SYSFS */
+
+	/* no need to send hotplug events & populate /sys/class/net
+	   with interces, just waistes precious time */
+	if (strncmp(net->name, "bond", 4) &&
+	    strncmp(net->name, "eth", 3) &&
+	    strncmp(net->name, "wil", 3) &&
+	    strncmp(net->name, "lte", 3)) {
+		return 0;
+	}
 
 	error = device_add(dev);
 	if (error)

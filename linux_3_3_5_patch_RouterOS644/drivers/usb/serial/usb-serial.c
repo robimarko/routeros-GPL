@@ -916,6 +916,7 @@ int usb_serial_probe(struct usb_interface *interface,
 		port = serial->port[i];
 		buffer_size = max_t(int, serial->type->bulk_in_size,
 				usb_endpoint_maxp(endpoint));
+		if (type->max_buf_size) buffer_size = type->max_buf_size;
 		port->bulk_in_size = buffer_size;
 		port->bulk_in_endpointAddress = endpoint->bEndpointAddress;
 

@@ -252,6 +252,27 @@ config EP93XX_DMA
 	help
 	  Enable support for the Cirrus Logic EP93xx M2P/M2M DMA controller.
 
+config AL_DMA
+	bool "Annapurna Labs DMA support"
+	depends on ARCH_ALPINE
+	select DMA_ENGINE
+	select ASYNC_TX_ENABLE_CHANNEL_SWITCH
+	help
+	  Enable support for the Annapurna Labs DMA and RAID acceleration 
+	  engine.
+
+config AL_DMA_STATS
+	bool "Annapurna Labs DMA statistics enabled"
+	depends on AL_DMA
+	help
+	  Enable Annapurna Labs DMA and RAID acceleration engine statistics.
+
+config AL_DMA_PCI_IOV
+	bool "Annapurna Labs DMA Virtual Function enabled"
+	depends on AL_DMA
+	help
+	  Enable Annapurna Labs DMA Virtual Function.
+
 config DMA_ENGINE
 	bool
 

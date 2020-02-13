@@ -106,8 +106,10 @@ static void __booke_wdt_ping(void *data)
 	mtspr(SPRN_TSR, TSR_ENW|TSR_WIS);
 }
 
+static void noop(void *data) { }
 static void booke_wdt_ping(void)
 {
+	on_each_cpu(noop, NULL, 1);
 	on_each_cpu(__booke_wdt_ping, NULL, 0);
 }
 
@@ -119,9 +121,26 @@ static void __booke_wdt_enable(void *data)
 	__booke_wdt_ping(NULL);
 	val = mfspr(SPRN_TCR);
 	val &= ~WDTP_MASK;
+#ifdef CONFIG_4xx
+	val |= (TCR_WIE|TCR_WRC(WRC_SYSTEM)|WDTP(booke_wdt_period));
+#else
 	val |= (TCR_WIE|TCR_WRC(WRC_CHIP)|WDTP(booke_wdt_period));
+#endif
 
 	mtspr(SPRN_TCR, val);
+}
+
+static void booke_wdt_timer_ping(unsigned long arg);
+static DEFINE_TIMER(wdt_timer, booke_wdt_timer_ping, 0, 0);
+
+static unsigned persistent = 0;
+
+static void booke_wdt_timer_ping(unsigned long arg)
+{
+	if (persistent) {
+	    booke_wdt_ping();
+	    mod_timer(&wdt_timer, jiffies + 5 * HZ);
+	}
 }
 
 /**
@@ -148,6 +167,18 @@ static void __booke_wdt_disable(void *data)
 static ssize_t booke_wdt_write(struct file *file, const char __user *buf,
 				size_t count, loff_t *ppos)
 {
+	if (count)
+	{
+		size_t i;
+		persistent = 0;
+		for (i = 0; i < count; ++i) {
+			char c;
+			if (get_user(c, buf + i))
+				return -EFAULT;
+			if (c == 'V')
+				persistent = 1;
+		}
+	}
 	booke_wdt_ping();
 	return count;
 }
@@ -248,6 +279,7 @@ static int booke_wdt_release(struct inode *inode, struct file *file)
 
 	clear_bit(0, &wdt_is_active);
 
+	if (persistent) booke_wdt_timer_ping(0);
 	return 0;
 }
 

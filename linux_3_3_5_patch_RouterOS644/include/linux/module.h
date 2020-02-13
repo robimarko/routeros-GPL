@@ -512,7 +512,7 @@ int ref_module(struct module *a, struct module *b);
 const char *module_address_lookup(unsigned long addr,
 			    unsigned long *symbolsize,
 			    unsigned long *offset,
-			    char **modname,
+			    struct module **mod,
 			    char *namebuf);
 int lookup_module_symbol_name(unsigned long addr, char *symname);
 int lookup_module_symbol_attrs(unsigned long addr, unsigned long *size, unsigned long *offset, char *modname, char *name);
@@ -583,7 +583,7 @@ static inline void module_put(struct module *module)
 static inline const char *module_address_lookup(unsigned long addr,
 					  unsigned long *symbolsize,
 					  unsigned long *offset,
-					  char **modname,
+					  struct module **mod,
 					  char *namebuf)
 {
 	return NULL;

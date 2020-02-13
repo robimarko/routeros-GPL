@@ -11,9 +11,15 @@
 #include <linux/init.h>
 #include <linux/oprofile.h>
 #include <linux/smp.h>
+#include <asm/ptrace.h>
 #include <asm/cpu-info.h>
+#include <asm/rb/boards.h>
 
 #include "op_impl.h"
+
+extern int __init rb100_oprofile_init(struct oprofile_operations *ops);
+extern int __init rb500_oprofile_init(struct oprofile_operations *ops);
+extern int __init hrtimer_oprofile_init(struct oprofile_operations *);
 
 extern struct op_mips_model op_model_mipsxx_ops __weak;
 extern struct op_mips_model op_model_rm9000_ops __weak;
@@ -71,10 +77,38 @@ static void op_mips_stop(void)
 	on_each_cpu(model->cpu_stop, NULL, 1);
 }
 
+void mt_op_mips_backtrace(struct pt_regs * const regs, unsigned int depth)
+{
+	unsigned long ra = regs->regs[31];
+	unsigned long pc = regs->cp0_epc;
+	unsigned long sp = regs->regs[29];
+	int usermode = user_mode(regs);
+
+	while (depth-- && pc) {
+	    pc = find_prev_frame(pc, ra, &sp, usermode);
+	    if (pc) oprofile_add_trace((unsigned long) pc);
+	    ra = 0;
+	}
+}
+
 int __init oprofile_arch_init(struct oprofile_operations *ops)
 {
 	struct op_mips_model *lmodel = NULL;
 	int res;
+
+	ops->backtrace = mt_op_mips_backtrace;
+
+	if (hrtimer_oprofile_init(ops) == 0)
+		return 0;
+
+#ifdef CONFIG_MIPS_MIKROTIK
+	switch (mips_machgroup) {
+	case MACH_GROUP_MT_RB100:
+		return rb100_oprofile_init(ops);
+	case MACH_GROUP_MT_RB500:
+		return rb500_oprofile_init(ops);
+	}
+#endif
 
 	switch (current_cpu_type()) {
 	case CPU_5KC:

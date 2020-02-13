@@ -583,6 +583,7 @@ int xfrm_policy_insert(int dir, struct xfrm_policy *policy, int excl)
 		hlist_add_head(&policy->bydst, chain);
 	xfrm_pol_hold(policy);
 	net->xfrm.policy_count[dir]++;
+	fp_xfrm_changed(1);
 	atomic_inc(&flow_cache_genid);
 	if (delpol)
 		__xfrm_policy_unlink(delpol, dir);
@@ -1042,6 +1043,7 @@ static void __xfrm_policy_link(struct xfrm_policy *pol, int dir)
 	hlist_add_head(&pol->bydst, chain);
 	hlist_add_head(&pol->byidx, net->xfrm.policy_byidx+idx_hash(net, pol->index));
 	net->xfrm.policy_count[dir]++;
+	fp_xfrm_changed(1);
 	xfrm_pol_hold(pol);
 
 	if (xfrm_bydst_should_resize(net, dir, NULL))
@@ -1060,6 +1062,7 @@ static struct xfrm_policy *__xfrm_policy_unlink(struct xfrm_policy *pol,
 	hlist_del(&pol->byidx);
 	list_del(&pol->walk.all);
 	net->xfrm.policy_count[dir]--;
+	fp_xfrm_changed(-1);
 
 	return pol;
 }
@@ -1351,8 +1354,9 @@ static inline struct xfrm_dst *xfrm_alloc_dst(struct net *net, int family)
 	xdst = dst_alloc(dst_ops, NULL, 0, 0, 0);
 
 	if (likely(xdst)) {
-		memset(&xdst->u.rt6.rt6i_table, 0,
-			sizeof(*xdst) - sizeof(struct dst_entry));
+		struct dst_entry *dst = &xdst->u.dst;
+
+		memset(dst + 1, 0, sizeof(*xdst) - sizeof(*dst));
 		xdst->flo.ops = &xfrm_bundle_fc_ops;
 	} else
 		xdst = ERR_PTR(-ENOBUFS);
@@ -1761,7 +1765,7 @@ static struct dst_entry *make_blackhole(struct net *net, u16 family,
 
 	if (!afinfo) {
 		dst_release(dst_orig);
-		ret = ERR_PTR(-EINVAL);
+		return ERR_PTR(-EINVAL);
 	} else {
 		ret = afinfo->blackhole_route(net, dst_orig);
 	}
@@ -2288,11 +2292,12 @@ static void __xfrm_garbage_collect(struct net *net)
 	}
 }
 
-static void xfrm_garbage_collect(struct net *net)
+void xfrm_garbage_collect(struct net *net)
 {
 	flow_cache_flush();
 	__xfrm_garbage_collect(net);
 }
+EXPORT_SYMBOL(xfrm_garbage_collect);
 
 static void xfrm_garbage_collect_deferred(struct net *net)
 {

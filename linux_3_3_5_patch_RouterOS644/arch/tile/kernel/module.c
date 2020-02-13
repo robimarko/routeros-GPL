@@ -67,12 +67,15 @@ void *module_alloc(unsigned long size)
 	area = __get_vm_area(size, VM_ALLOC, MEM_MODULE_START, MEM_MODULE_END);
 	if (!area)
 		goto error;
+	area->nr_pages = npages;
+	area->pages = pages;
 
 	if (map_vm_area(area, prot_rwx, &pages)) {
 		vunmap(area->addr);
 		goto error;
 	}
 
+	kmemleak_alloc(area->addr, size, 3, GFP_KERNEL | __GFP_HIGHMEM);
 	return area->addr;
 
 error:
@@ -86,6 +89,7 @@ error:
 /* Free memory returned from module_alloc */
 void module_free(struct module *mod, void *module_region)
 {
+	kmemleak_free(module_region);
 	vfree(module_region);
 
 	/* Globally flush the L1 icache. */
@@ -157,7 +161,17 @@ int apply_relocate_add(Elf_Shdr *sechdrs,
 
 		switch (ELF_R_TYPE(rel[i].r_info)) {
 
-#define MUNGE(func) (*location = ((*location & ~func(-1)) | func(value)))
+#ifdef __LITTLE_ENDIAN
+# define MUNGE(func) \
+	(*location = ((*location & ~func(-1)) | func(value)))
+#else
+/*
+ * Instructions are always little-endian, so when we read them as data,
+ * we have to swap them around before and after modifying them.
+ */
+# define MUNGE(func) \
+	(*location = swab64((swab64(*location) & ~func(-1)) | func(value)))
+#endif
 
 #ifndef __tilegx__
 		case R_TILE_32:

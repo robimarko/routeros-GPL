@@ -494,6 +494,37 @@ config USB_CI13XXX_MSM
 	  dynamically linked module called "ci13xxx_msm" and force all
 	  gadget drivers to also be dynamically linked.
 
+config USB_CI13XXX_MSM
+	tristate
+	depends on USB_GADGET_CI13XXX_MSM
+	default USB_GADGET
+	select USB_GADGET_SELECTED
+
+config USB_GADGET_ATH
+	tristate "Atheros USB Gadget support"
+	select USB_GADGET_DUALSPEED
+	help
+	  Atheros embedded USB peripheral controller which
+	  supports both full and high speed USB 2.0 data transfers.
+
+	  Say "y" to link the driver statically, or "m" to build a
+	  dynamically linked module called "ath_udc" and force all
+	   gadget drivers to also be dynamically linked.
+
+config USB_ATH_OTG
+	bool "USB OTG Support for Atheros"
+	depends on USB_GADGET_ATH && USB_OTG
+	default y
+	help
+	  if you say Y here, the OTG functionality of Atheros will be enabled and
+	  used along with the Host/Gadget Implementation
+
+config USB_ATH
+	tristate
+	depends on USB_GADGET_ATH
+	default USB_GADGET
+	select USB_GADGET_SELECTED
+
 #
 # LAST -- dummy/emulated controller
 #

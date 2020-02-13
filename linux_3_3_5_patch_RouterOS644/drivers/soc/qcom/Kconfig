@@ -1,0 +1,5 @@
+#
+# QCOM Soc drivers
+#
+config QCOM_SCM
+        bool

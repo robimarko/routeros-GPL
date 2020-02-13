@@ -57,6 +57,10 @@
 #include "squashfs_fs_sb.h"
 #include "squashfs.h"
 
+struct squashfs_cache *block_cache;
+struct squashfs_cache *fragment_cache;
+struct squashfs_cache *read_page;
+
 /*
  * Look-up block in cache, and increment usage count.  If not in cache, read
  * and decompress it from disk.
@@ -71,7 +75,8 @@ struct squashfs_cache_entry *squashfs_cache_get(struct super_block *sb,
 
 	while (1) {
 		for (i = cache->curr_blk, n = 0; n < cache->entries; n++) {
-			if (cache->entry[i].block == block) {
+			if (cache->entry[i].block == block &&
+			    cache->entry[i].sb == sb) {
 				cache->curr_blk = i;
 				break;
 			}
@@ -112,6 +117,7 @@ struct squashfs_cache_entry *squashfs_cache_get(struct super_block *sb,
 			 * disk.
 			 */
 			cache->unused--;
+			entry->sb = sb;
 			entry->block = block;
 			entry->refcount = 1;
 			entry->pending = 1;
@@ -266,6 +272,7 @@ struct squashfs_cache *squashfs_cache_init(char *name, int entries,
 
 		init_waitqueue_head(&cache->entry[i].wait_queue);
 		entry->cache = cache;
+		entry->sb = NULL;
 		entry->block = SQUASHFS_INVALID_BLK;
 		entry->data = kcalloc(cache->pages, sizeof(void *), GFP_KERNEL);
 		if (entry->data == NULL) {
@@ -336,14 +343,13 @@ int squashfs_copy_data(void *buffer, struct squashfs_cache_entry *entry,
 int squashfs_read_metadata(struct super_block *sb, void *buffer,
 		u64 *block, int *offset, int length)
 {
-	struct squashfs_sb_info *msblk = sb->s_fs_info;
 	int bytes, res = length;
 	struct squashfs_cache_entry *entry;
 
 	TRACE("Entered squashfs_read_metadata [%llx:%x]\n", *block, *offset);
 
 	while (length) {
-		entry = squashfs_cache_get(sb, msblk->block_cache, *block, 0);
+		entry = squashfs_cache_get(sb, block_cache, *block, 0);
 		if (entry->error) {
 			res = entry->error;
 			goto error;
@@ -381,9 +387,7 @@ error:
 struct squashfs_cache_entry *squashfs_get_fragment(struct super_block *sb,
 				u64 start_block, int length)
 {
-	struct squashfs_sb_info *msblk = sb->s_fs_info;
-
-	return squashfs_cache_get(sb, msblk->fragment_cache, start_block,
+	return squashfs_cache_get(sb, fragment_cache, start_block,
 		length);
 }
 
@@ -396,9 +400,7 @@ struct squashfs_cache_entry *squashfs_get_fragment(struct super_block *sb,
 struct squashfs_cache_entry *squashfs_get_datablock(struct super_block *sb,
 				u64 start_block, int length)
 {
-	struct squashfs_sb_info *msblk = sb->s_fs_info;
-
-	return squashfs_cache_get(sb, msblk->read_page, start_block, length);
+	return squashfs_cache_get(sb, read_page, start_block, length);
 }
 
 

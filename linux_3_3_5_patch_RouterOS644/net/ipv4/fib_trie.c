@@ -72,7 +72,6 @@
 #include <linux/init.h>
 #include <linux/list.h>
 #include <linux/slab.h>
-#include <linux/prefetch.h>
 #include <linux/export.h>
 #include <net/net_namespace.h>
 #include <net/ip.h>
@@ -369,7 +368,7 @@ static void __leaf_free_rcu(struct rcu_head *head)
 
 static inline void free_leaf(struct leaf *l)
 {
-	call_rcu_bh(&l->rcu, __leaf_free_rcu);
+	call_rcu(&l->rcu, __leaf_free_rcu);
 }
 
 static inline void free_leaf_info(struct leaf_info *leaf)
@@ -774,12 +773,9 @@ static struct tnode *inflate(struct trie *t, struct tnode *tn)
 
 		if (IS_LEAF(node) || ((struct tnode *) node)->pos >
 		   tn->pos + tn->bits - 1) {
-			if (tkey_extract_bits(node->key,
-					      oldtnode->pos + oldtnode->bits,
-					      1) == 0)
-				put_child(t, tn, 2*i, node);
-			else
-				put_child(t, tn, 2*i+1, node);
+			put_child(t, tn,
+				  tkey_extract_bits(node->key, oldtnode->pos, oldtnode->bits + 1),
+				  node);
 			continue;
 		}
 
@@ -1134,12 +1130,8 @@ static struct list_head *fib_insert_node(struct trie *t, u32 key, int plen)
 		 *  first tnode need some special handling
 		 */
 
-		if (tp)
-			pos = tp->pos+tp->bits;
-		else
-			pos = 0;
-
 		if (n) {
+			pos = tp ? tp->pos+tp->bits : 0;
 			newpos = tkey_mismatch(key, pos, n->key);
 			tn = tnode_new(n->key, newpos, 1);
 		} else {
@@ -1341,6 +1333,9 @@ int fib_table_insert(struct fib_table *tb, struct fib_config *cfg)
 	rtmsg_fib(RTM_NEWROUTE, htonl(key), new_fa, plen, tb->tb_id,
 		  &cfg->fc_nlinfo, 0);
 succeeded:
+	if (ipv4_routing_changed) {
+	    ipv4_routing_changed();
+	}
 	return 0;
 
 out_free_new_fa:
@@ -1371,6 +1366,8 @@ static int check_leaf(struct fib_table *tb, struct trie *t, struct leaf *l,
 			int nhsel, err;
 
 			if (fa->fa_tos && fa->fa_tos != flp->flowi4_tos)
+				continue;
+			if (fi->fib_dead)
 				continue;
 			if (fa->fa_info->fib_scope < flp->flowi4_scope)
 				continue;
@@ -1657,7 +1654,12 @@ int fib_table_delete(struct fib_table *tb, struct fib_config *cfg)
 	if (!l)
 		return -ESRCH;
 
-	fa_head = get_fa_head(l, plen);
+	li = find_leaf_info(l, plen);
+
+	if (!li)
+		return -ESRCH;
+
+	fa_head = &li->falh;
 	fa = fib_find_alias(fa_head, tos, 0);
 
 	if (!fa)
@@ -1693,9 +1695,6 @@ int fib_table_delete(struct fib_table *tb, struct fib_config *cfg)
 	rtmsg_fib(RTM_DELROUTE, htonl(key), fa, plen, tb->tb_id,
 		  &cfg->fc_nlinfo, 0);
 
-	l = fib_find_node(t, key);
-	li = find_leaf_info(l, plen);
-
 	list_del_rcu(&fa->fa_list);
 
 	if (!plen)
@@ -1714,6 +1713,9 @@ int fib_table_delete(struct fib_table *tb, struct fib_config *cfg)
 
 	fib_release_info(fa->fa_info);
 	alias_free_mem_rcu(fa);
+	if (ipv4_routing_changed) {
+	    ipv4_routing_changed();
+	}
 	return 0;
 }
 
@@ -1772,10 +1774,8 @@ static struct leaf *leaf_walk_rcu(struct tnode *p, struct rt_trie_node *c)
 			if (!c)
 				continue;
 
-			if (IS_LEAF(c)) {
-				prefetch(rcu_dereference_rtnl(p->child[idx]));
+			if (IS_LEAF(c))
 				return (struct leaf *) c;
-			}
 
 			/* Rescan start scanning in new node */
 			p = (struct tnode *) c;
@@ -2146,7 +2146,7 @@ static void trie_show_stats(struct seq_file *seq, struct trie_stat *stat)
 		max--;
 
 	pointers = 0;
-	for (i = 1; i <= max; i++)
+	for (i = 1; i < max; i++)
 		if (stat->nodesizes[i] != 0) {
 			seq_printf(seq, "  %u: %u",  i, stat->nodesizes[i]);
 			pointers += (1<<i) * stat->nodesizes[i];

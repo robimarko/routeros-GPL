@@ -74,12 +74,10 @@ static unsigned int ipv4_conntrack_defrag(unsigned int hooknum,
 		return NF_ACCEPT;
 
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
-#if !defined(CONFIG_NF_NAT) && !defined(CONFIG_NF_NAT_MODULE)
 	/* Previously seen (loopback)?  Ignore.  Do this before
 	   fragment check. */
 	if (skb->nfct && !nf_ct_is_template((struct nf_conn *)skb->nfct))
 		return NF_ACCEPT;
-#endif
 #endif
 	/* Gather fragments. */
 	if (ip_is_fragment(ip_hdr(skb))) {

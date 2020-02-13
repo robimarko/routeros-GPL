@@ -5,7 +5,7 @@
 #include <linux/compiler.h>
 #include <linux/workqueue.h>
 
-#if defined(CC_HAVE_ASM_GOTO) && defined(CONFIG_JUMP_LABEL)
+#if defined(CONFIG_JUMP_LABEL)
 
 struct jump_label_key {
 	atomic_t enabled;
@@ -23,7 +23,7 @@ struct jump_label_key_deferred {
 
 # include <asm/jump_label.h>
 # define HAVE_JUMP_LABEL
-#endif	/* CC_HAVE_ASM_GOTO && CONFIG_JUMP_LABEL */
+#endif	/* CONFIG_JUMP_LABEL */
 
 enum jump_label_type {
 	JUMP_LABEL_DISABLE = 0,

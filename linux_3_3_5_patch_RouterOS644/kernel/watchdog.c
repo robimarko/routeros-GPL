@@ -303,7 +303,6 @@ static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
 		print_irqtrace_events(current);
 		if (regs)
 			show_regs(regs);
-		else
 			dump_stack();
 
 		if (softlockup_panic)

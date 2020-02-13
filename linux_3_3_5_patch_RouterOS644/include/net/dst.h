@@ -54,6 +54,7 @@ struct dst_entry {
 #define DST_NOCACHE		0x0010
 #define DST_NOCOUNT		0x0020
 #define DST_NOPEER		0x0040
+#define DST_FAKE_RTABLE		0x0080
 
 	short			error;
 	short			obsolete;
@@ -247,14 +248,18 @@ static inline void dst_hold(struct dst_entry * dst)
 static inline void dst_use(struct dst_entry *dst, unsigned long time)
 {
 	dst_hold(dst);
-	dst->__use++;
+//	dst->__use++;
+	if (dst->lastuse != time) {
 	dst->lastuse = time;
+	}
 }
 
 static inline void dst_use_noref(struct dst_entry *dst, unsigned long time)
 {
-	dst->__use++;
+//	dst->__use++;
+	if (dst->lastuse != time) {
 	dst->lastuse = time;
+	}
 }
 
 static inline
@@ -332,6 +337,7 @@ static inline void __skb_tunnel_rx(struct sk_buff *skb, struct net_device *dev)
 	skb_set_queue_mapping(skb, 0);
 	skb_dst_drop(skb);
 	nf_reset(skb);
+	skb_reset_mark(skb);
 }
 
 /**

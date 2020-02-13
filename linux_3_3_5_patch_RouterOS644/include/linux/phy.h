@@ -533,4 +533,12 @@ int __init mdio_bus_init(void);
 void mdio_bus_exit(void);
 
 extern struct bus_type mdio_bus_type;
+
+struct mdio_board_info {
+        int             phy_addr;
+        const char      *bus_id;
+        const void      *platform_data;
+};
+int mdiobus_register_board_info(struct mdio_board_info const *info, int n);
+
 #endif /* __PHY_H */

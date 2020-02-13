@@ -42,6 +42,15 @@
 #include <asm/io.h>
 #include <asm/irq.h>
 
+#ifdef CONFIG_MIPS_MIKROTIK
+#include <asm/bootinfo.h>
+#include <asm/rb/boards.h>
+#endif
+
+#ifdef CONFIG_ARCH_RB
+#include <mach/system.h>
+#endif
+
 #include "8250.h"
 
 #ifdef CONFIG_SPARC
@@ -3263,6 +3272,19 @@ EXPORT_SYMBOL(serial8250_unregister_port);
 static int __init serial8250_init(void)
 {
 	int ret;
+
+#ifdef CONFIG_MIPS_MIKROTIK
+	extern unsigned uart_enabled;
+	if (!uart_enabled) return -1;
+	if (mips_machgroup == MACH_GROUP_MT_RB100) return -1;
+	if (mips_machtype == MACH_MT_RB951) return -1;
+	if (mips_machtype == MACH_MT_CM2N) return -1;
+	if (mips_machtype == MACH_MT_mAP) return -1;
+#endif
+#ifdef __arm__
+	if (rb_mach == RB_MACH_IPQ806X) return -1;
+	if (rb_mach == RB_MACH_IPQ40XX) return -1;
+#endif
 
 	if (nr_uarts > UART_NR)
 		nr_uarts = UART_NR;

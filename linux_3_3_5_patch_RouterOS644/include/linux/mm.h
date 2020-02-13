@@ -115,7 +115,12 @@ extern unsigned int kobjsize(const void *objp);
 
 #define VM_CAN_NONLINEAR 0x08000000	/* Has ->fault & does nonlinear pages */
 #define VM_MIXEDMAP	0x10000000	/* Can contain "struct page" and pure PFN pages */
+#ifdef CONFIG_HOMECACHE
+#define VM_DONTMERGE	0x20000000	/* Cannot merge with neighbors */
+#define VM_SAO		0		/* Strong Access Ordering (powerpc) */
+#else
 #define VM_SAO		0x20000000	/* Strong Access Ordering (powerpc) */
+#endif
 #define VM_PFN_AT_MMAP	0x40000000	/* PFNMAP vma that is fully mapped at mmap time */
 #define VM_MERGEABLE	0x80000000	/* KSM may merge identical pages */
 
@@ -142,7 +147,11 @@ extern unsigned int kobjsize(const void *objp);
  * Special vmas that are non-mergable, non-mlock()able.
  * Note: mm/huge_memory.c VM_NO_THP depends on this definition.
  */
+#ifdef CONFIG_HOMECACHE
+#define VM_SPECIAL (VM_IO | VM_DONTMERGE | VM_DONTEXPAND | VM_RESERVED | VM_PFNMAP)
+#else
 #define VM_SPECIAL (VM_IO | VM_DONTEXPAND | VM_RESERVED | VM_PFNMAP)
+#endif
 
 /*
  * mapping from the currently active vm_flags protection bits (the

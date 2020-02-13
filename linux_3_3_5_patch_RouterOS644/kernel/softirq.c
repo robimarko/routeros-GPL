@@ -76,6 +76,16 @@ static void wakeup_softirqd(void)
 		wake_up_process(tsk);
 }
 
+static bool is_softirqd_sleeping(void)
+{
+	struct task_struct *tsk = __this_cpu_read(ksoftirqd);
+
+	if (tsk && tsk->state == TASK_INTERRUPTIBLE) {
+		return true;
+	}
+	return false;
+}
+
 /*
  * preempt_count and SOFTIRQ_OFFSET usage:
  * - preempt_count is changed by SOFTIRQ_OFFSET on entering or leaving
@@ -171,7 +181,8 @@ static inline void _local_bh_enable_ip(unsigned long ip)
  	 */
 	sub_preempt_count(SOFTIRQ_DISABLE_OFFSET - 1);
 
-	if (unlikely(!in_interrupt() && local_softirq_pending()))
+	if (unlikely(is_softirqd_sleeping() &&
+		     !in_interrupt() && local_softirq_pending()))
 		do_softirq();
 
 	dec_preempt_count();
@@ -202,7 +213,7 @@ EXPORT_SYMBOL(local_bh_enable_ip);
  * we want to handle softirqs as soon as possible, but they
  * should not be able to lock up the box.
  */
-#define MAX_SOFTIRQ_RESTART 10
+#define MAX_SOFTIRQ_RESTART 2
 
 asmlinkage void __do_softirq(void)
 {
@@ -344,7 +355,8 @@ void irq_exit(void)
 	account_system_vtime(current);
 	trace_hardirq_exit();
 	sub_preempt_count(IRQ_EXIT_OFFSET);
-	if (!in_interrupt() && local_softirq_pending())
+	if (is_softirqd_sleeping() &&
+	    !in_interrupt() && local_softirq_pending())
 		invoke_softirq();
 
 #ifdef CONFIG_NO_HZ

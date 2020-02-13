@@ -146,6 +146,12 @@ static void free_fib_info_rcu(struct rcu_head *head)
 {
 	struct fib_info *fi = container_of(head, struct fib_info, rcu);
 
+	change_nexthops(fi) {
+		if (nexthop_nh->nh_dev)
+			dev_put(nexthop_nh->nh_dev);
+	} endfor_nexthops(fi);
+
+	release_net(fi->fib_net);
 	if (fi->fib_metrics != (u32 *) dst_default_metrics)
 		kfree(fi->fib_metrics);
 	kfree(fi);
@@ -157,13 +163,7 @@ void free_fib_info(struct fib_info *fi)
 		pr_warning("Freeing alive fib_info %p\n", fi);
 		return;
 	}
-	change_nexthops(fi) {
-		if (nexthop_nh->nh_dev)
-			dev_put(nexthop_nh->nh_dev);
-		nexthop_nh->nh_dev = NULL;
-	} endfor_nexthops(fi);
 	fib_info_cnt--;
-	release_net(fi->fib_net);
 	call_rcu(&fi->rcu, free_fib_info_rcu);
 }
 
@@ -199,6 +199,7 @@ static inline int nh_comp(const struct fib_info *fi, const struct fib_info *ofi)
 #ifdef CONFIG_IP_ROUTE_CLASSID
 		    nh->nh_tclassid != onh->nh_tclassid ||
 #endif
+		    nh->nh_mplskey != onh->nh_mplskey ||
 		    ((nh->nh_flags ^ onh->nh_flags) & ~RTNH_F_DEAD))
 			return -1;
 		onh++;
@@ -423,6 +424,8 @@ static int fib_get_nhs(struct fib_info *fi, struct rtnexthop *rtnh,
 			nla = nla_find(attrs, attrlen, RTA_FLOW);
 			nexthop_nh->nh_tclassid = nla ? nla_get_u32(nla) : 0;
 #endif
+			nla = nla_find(attrs, attrlen, RTA_MPLSKEY);
+			nexthop_nh->nh_mplskey = nla ? nla_get_u32(nla) : 0;
 		}
 
 		rtnh = rtnh_next(rtnh, &remaining);
@@ -443,8 +446,9 @@ int fib_nh_match(struct fib_config *cfg, struct fib_info *fi)
 	if (cfg->fc_priority && cfg->fc_priority != fi->fib_priority)
 		return 1;
 
-	if (cfg->fc_oif || cfg->fc_gw) {
+	if (cfg->fc_oif || cfg->fc_gw || cfg->fc_mplskey) {
 		if ((!cfg->fc_oif || cfg->fc_oif == fi->fib_nh->nh_oif) &&
+		    (!cfg->fc_mplskey || cfg->fc_mplskey == fi->fib_nh->nh_mplskey) &&
 		    (!cfg->fc_gw  || cfg->fc_gw == fi->fib_nh->nh_gw))
 			return 0;
 		return 1;
@@ -478,6 +482,9 @@ int fib_nh_match(struct fib_config *cfg, struct fib_info *fi)
 			if (nla && nla_get_u32(nla) != nh->nh_tclassid)
 				return 1;
 #endif
+			nla = nla_find(attrs, attrlen, RTA_MPLSKEY);
+			if (nla && nla_get_u32(nla) != nh->nh_mplskey)
+				return 1;
 		}
 
 		rtnh = rtnh_next(rtnh, &remaining);
@@ -800,6 +807,8 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 		if (cfg->fc_flow && fi->fib_nh->nh_tclassid != cfg->fc_flow)
 			goto err_inval;
 #endif
+		if (cfg->fc_mplskey && fi->fib_nh->nh_mplskey != cfg->fc_mplskey)
+			goto err_inval;
 #else
 		goto err_inval;
 #endif
@@ -815,10 +824,11 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
 		nh->nh_weight = 1;
 #endif
+		nh->nh_mplskey = cfg->fc_mplskey;
 	}
 
 	if (fib_props[cfg->fc_type].error) {
-		if (cfg->fc_gw || cfg->fc_oif || cfg->fc_mp)
+		if (cfg->fc_gw || cfg->fc_oif || cfg->fc_mp || cfg->fc_mplskey)
 			goto err_inval;
 		goto link_it;
 	} else {
@@ -856,12 +866,14 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 		} endfor_nexthops(fi)
 	}
 
+#if 0 /* Do not check validity of prefsrc addresses */
 	if (fi->fib_prefsrc) {
 		if (cfg->fc_type != RTN_LOCAL || !cfg->fc_dst ||
 		    fi->fib_prefsrc != cfg->fc_dst)
 			if (inet_addr_type(net, fi->fib_prefsrc) != RTN_LOCAL)
 				goto err_inval;
 	}
+#endif
 
 	change_nexthops(fi) {
 		fib_info_update_nh_saddr(net, nexthop_nh);
@@ -960,6 +972,8 @@ int fib_dump_info(struct sk_buff *skb, u32 pid, u32 seq, int event,
 		if (fi->fib_nh[0].nh_tclassid)
 			NLA_PUT_U32(skb, RTA_FLOW, fi->fib_nh[0].nh_tclassid);
 #endif
+		if (fi->fib_nh[0].nh_mplskey)
+			NLA_PUT_U32(skb, RTA_MPLSKEY, fi->fib_nh[0].nh_mplskey);
 	}
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
 	if (fi->fib_nhs > 1) {
@@ -985,6 +999,8 @@ int fib_dump_info(struct sk_buff *skb, u32 pid, u32 seq, int event,
 			if (nh->nh_tclassid)
 				NLA_PUT_U32(skb, RTA_FLOW, nh->nh_tclassid);
 #endif
+			if (nh->nh_mplskey)
+				NLA_PUT_U32(skb, RTA_MPLSKEY, nh->nh_mplskey);
 			/* length of rtnetlink header + attributes */
 			rtnh->rtnh_len = nlmsg_get_pos(skb) - (void *) rtnh;
 		} endfor_nexthops(fi);
@@ -1019,10 +1035,12 @@ int fib_sync_down_addr(struct net *net, __be32 local)
 	hlist_for_each_entry(fi, node, head, fib_lhash) {
 		if (!net_eq(fi->fib_net, net))
 			continue;
+#if (0) /* Do not invalidate routes based on prefsrc */
 		if (fi->fib_prefsrc == local) {
 			fi->fib_flags |= RTNH_F_DEAD;
 			ret++;
 		}
+#endif
 	}
 	return ret;
 }
