@@ -1,0 +1,201 @@
+config ARCH_ALPINE
+        bool "AnnapurnaLabs Alpine SOCs with Device Tree support"
+	depends on ARCH_RB
+        select ARCH_WANT_OPTIONAL_GPIOLIB
+        select ARM_AMBA
+		select SPARSE_IRQ
+        select ARM_TIMER_SP804
+        select ARM_L1_CACHE_SHIFT_6
+        select CLKDEV_LOOKUP
+        select GENERIC_CLOCKEVENTS
+		select GENERIC_IRQ_CHIP
+        select HAVE_CLK
+        select HAVE_SMP
+        select HAVE_SCHED_CLOCK
+        select ARCH_SCHED_CLOCK
+        select ICST
+        select CPU_V7
+        select ARM_GIC
+        select HAVE_ARCH_TIMERS
+        select COMMON_CLK
+        select PCI
+	select PCI_DOMAINS
+        select ARCH_SUPPORTS_MSI
+	select NEED_MACH_MEMORY_H
+	select ARM_HAS_SG_CHAIN
+	select USE_OF
+        help
+          This enables support for the AnnapurnaLabs SoC Gen1 boards.
+
+config ARCH_QCOM
+	bool "Qualcomm Support"
+	depends on ARCH_RB
+        select CPU_V7
+	select ARCH_REQUIRE_GPIOLIB
+	select ARM_GIC
+	select ARM_AMBA
+	select CLKSRC_OF
+	select GENERIC_CLOCKEVENTS
+	select HAVE_SMP
+	select PINCTRL
+	select ARCH_SUPPORTS_MSI
+	select MIGHT_HAVE_PCI
+	select PCI_DOMAINS if PCI
+	select QCOM_SCM if SMP
+	select HAVE_IRQ_TIME_ACCOUNTING
+        select HAVE_SCHED_CLOCK
+	select COMMON_CLK
+        select CLKDEV_LOOKUP
+	select HAVE_ARM_ARCH_TIMER
+	help
+	  Support for Qualcomm's devicetree based systems.
+
+config ARCH_IPQ806X
+	bool "IPQ806X support"
+	select ARCH_MSM
+	select HAVE_CLK
+	select GENERIC_CLOCKEVENTS
+	select ARCH_REQUIRE_GPIOLIB
+	select ARCH_HAS_CPUFREQ
+	select CLKDEV_LOOKUP
+	select MSM_SMP
+	select MSM_BUS_RPM_ARB_DISABLE
+	select ARCH_MSM_KRAIT
+	select HAVE_SCHED_CLOCK
+	select MACH_IPQ806X_RB3011
+	select HAVE_CLK_PREPARE
+	select SWP_EMULATE
+	select ARM_GIC
+	select CPU_V7
+	select PM
+	select PCI
+	select PCI_MSI
+        select ARCH_SUPPORTS_MSI
+	select MSM_PCIE
+	select MSM_ADM3
+	select MSM_V2_TLMM
+	select MSM_GPIOMUX
+	select MSM_RPM
+	select USB_EHCI_MSM
+	select MSM_SCM if SMP
+	select QCOM_SCM if SMP
+	select HAVE_SMP
+	select SMP
+	help
+	  Support for Qualcomm's ipq806x.
+
+config ARCH_IPQ40XX
+	bool "IPQ40XX"
+	select REGMAP_MMIO
+	select PCI
+	select PCI_MSI
+	select QCOM_PCIE
+	select MSM_PCIE
+	select HAVE_CLK
+	select HAVE_SCHED_CLOCK
+	select HAVE_CLK_PREPARE
+	select COMMON_CLK
+	select ARCH_HAS_CPUFREQ
+	select CPU_V7
+	select MSM_V2_TLMM
+	select ARCH_SUPPORTS_MSI
+	select USB_EHCI_MSM
+	select QCOM_SCM if SMP
+	help
+	  Support for ipq40XX
+
+config ARCH_MVEBU
+	bool "Marvell MSYS"
+	select CLKSRC_MMIO
+	select GENERIC_IRQ_CHIP
+	select PINCTRL
+	select PLAT_ORION
+	select SOC_BUS
+	select MVEBU_MBUS
+	select ZONE_DMA if ARM_LPAE
+	select ARCH_REQUIRE_GPIOLIB
+	select PCI_QUIRKS if PCI
+	select OF_ADDRESS_PCI
+	select ARMADA_370_XP_TIMER
+	select CACHE_L2X0
+	select HAVE_SMP
+	select CPU_PJ4B
+	select MSYS_CLK
+	select PINCTRL_MSYS
+	help
+	  Say 'Y' here if you want your kernel to support boards based
+	  on the Marvell Msys SoC family with device tree.
+
+if ARCH_QCOM
+config QCOM_PCIE
+	bool "QCOM PCIe Controller driver"
+
+config SPS
+	bool "SPS support"
+	select GENERIC_ALLOCATOR
+	help
+	  The SPS (Smart Peripheral Switch) is a DMA engine.
+	  It can move data in the following modes:
+		1. Peripheral-to-Peripheral.
+		2. Peripheral-to-Memory.
+		3. Memory-to-Memory.
+endif
+
+if ARCH_IPQ806X
+
+menu "IPQ806X Options"
+
+config MSM_PCIE
+	bool "MSM PCIe Controller driver"
+	depends on PCI && PCI_MSI
+	help
+	  Enables the PCIe functionality by configures PCIe core on
+	  MSM chipset and by enabling the ARM PCI framework extension.
+
+config MSM_RPM
+	bool "Resource Power Manager"
+	select MSM_MPM
+
+config MSM_BUS_SCALING
+	bool "Bus scaling driver"
+	default n
+
+config MSM_BUS_RPM_ARB_DISABLE
+	bool "Disables ARB request sent to RPM Firmware"
+	depends on MSM_BUS_SCALING
+
+config CPU_FREQ_MSM
+        bool
+        depends on CPU_FREQ && ARCH_MSM
+        default y
+        help
+          This enables the CPUFreq driver for Qualcomm CPUs.
+          If in doubt, say Y.
+
+endmenu
+
+config MSM_MPM
+	bool
+
+config MSM_GPIOMUX
+	bool
+
+config MSM_V2_TLMM
+	bool
+
+config MSM_ADM3
+	bool
+
+config MSM_SCM
+	bool
+
+config ARCH_MSM
+	bool
+
+config ARCH_MSM_KRAIT
+	bool
+
+config MSM_SMP
+	bool
+
+endif

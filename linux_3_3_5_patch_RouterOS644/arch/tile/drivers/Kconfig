@@ -1,0 +1,79 @@
+config TILE_HPI
+	bool "Tilera hypervisor HPI interface support"
+	default y
+	depends on !TILEGX
+	---help---
+	  This device provides access to HPI devices, typically via
+	  "mem", "int", and "info" devices in /dev/hpi/.
+
+config TILE_RSHIM
+	bool "Access to the Tile chip's rshim counters"
+	default y
+	---help---
+	  This device provides access to the Tile chip's rshim
+	  "down counters", a simple external counter API,
+	  typically via /dev/rshim.
+
+config TILE_EEPROM
+	bool "Access to the I2C EEPROM memory"
+	default y
+	---help---
+	  This device provides access to the I2C EEPROM memory,
+	  typically via /dev/eeprom/0.
+
+config TILE_MEMPROF
+	bool "Memory profiling support in /proc/tile/memprof"
+	default y
+	---help---
+	  This device provides real-time information on memory utilization,
+	  latency, etc.
+
+config TILE_BME_MEM
+	bool "Bare-Metal Environment memory-sharing interface"
+	default y
+	---help---
+	  This device allows sharing memory between a BME application
+	  running on some of the cores and Linux on other cores,
+	  typically via /dev/bme/mem.
+
+config TILE_SOFTUART
+	bool "Tilera Soft UART"
+	default n
+	depends on !TILEGX
+	---help---
+	  This device provides access to the FlexIO UART functionality.
+	  It requires a dedicated hypervisor "softuart" driver tile.
+
+config TILE_NETIO
+	tristate "TILEPro GBE/XGBE/PCIe character device support"
+	default y
+	depends on HUGETLBFS && !TILEGX
+	---help---
+	  This is the low-level driver for access to xgbe/gbe.
+	  This is not a network driver; see drivers/net/tile/ for that.
+	  Instead, it is used for raw network frame access from userspace.
+	  It can also provide raw frame access to PCIe.
+
+config TILE_TMFIFO
+	tristate "Character-device access to the Tilera tile-monitor FIFO"
+	default y
+	depends on TILEGX
+	---help---
+	  This device supports communication with an external controller
+	  via the tile-monitor FIFO hardware.
+
+config TILE_USB
+	tristate "Tilera USB host adapter support"
+	default y
+	depends on TILEGX && TILE_GXIO && TILE_GXIO_USB_HOST
+	---help---
+	  Provides USB host adapter support for the built-in EHCI and OHCI
+	  interfaces on TILE-Gx chips.
+
+config TILE_PKA
+	tristate "Character-device access to the Tilera Public Key Accelerator"
+	default y
+	depends on TILEGX
+	---help---
+	  This device supports access to the hardware accelerator for
+	  mathematical operations related to public key cryptography.

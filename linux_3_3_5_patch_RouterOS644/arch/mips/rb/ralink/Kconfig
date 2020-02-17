@@ -1,0 +1,61 @@
+if RALINK_MT7621
+
+choice
+        prompt "Soc Hardware Type"
+	default MT7621_ASIC
+
+config  MT7621_ASIC 
+	bool "MT7621-ASIC"
+	select USB_ARCH_HAS_HCD
+	select USB_ARCH_HAS_XHCI
+
+endchoice
+
+
+choice
+       prompt "Flash Type"
+       default MTD_ANY_RALINK
+
+config MTD_SPI_RALINK
+       bool "SPI"
+       depends on  !RALINK_RT2880
+
+config MTK_MTD_NAND
+		bool "MTK_NAND"	
+		depends on  RALINK_MT7621
+		select MTD_NAND
+		select MTD_NAND_IDS
+		select MTD_NAND_ECC
+
+config MTD_ANY_RALINK
+       bool "ANY (NOR/SPI/NAND)"
+       depends on  !RALINK_RT3352 && !RALINK_RT5350 && !RALINK_MT7628
+		select MTD_NAND
+		select MTD_NAND_IDS
+		select MTD_NAND_ECC
+
+endchoice
+
+
+config  RALINK_RAM_SIZE
+	int 
+	default 256 if RALINK_MT7621
+
+config MTD_PHYSMAP_START
+       hex 
+       default 0x1FC00000 if RALINK_MT7621
+
+config MTD_PHYSMAP_LEN
+       hex 
+       default 0x1000000 if RALINK_MT7621
+
+config MTD_PHYSMAP_BUSWIDTH
+       int 
+       default 2
+
+config  RALINK_CPUSLEEP
+	bool "Ralink CPU Sleep mode"
+	select RALINK_SYSTICK
+	default n
+
+endif

@@ -1,0 +1,3 @@
+platform-$(CONFIG_RALINK_MT7621)+= ralink/
+cflags-$(CONFIG_RALINK_MT7621)	+= -I$(srctree)/arch/mips/include/asm/mach-ralink
+load-$(CONFIG_RALINK_MT7621)	+= 0xffffffff80001000
